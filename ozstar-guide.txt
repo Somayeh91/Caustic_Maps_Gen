@@ -1,0 +1,52 @@
+Fill out Google form to get Amarel account
+
+SSH-ING
+ssh skhakpas@ozstar.swin.edu.au
+
+Making an alias:
+add this line to your .bash_profile file:
+
+alias ozstar="ssh skhakpas@ozstar.swin.edu.au"
+
+Before running your code load modules:
+
+bash module_load.sh
+
+aliasing for maps directory:
+
+alias DB="cd ./../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/"
+
+
+to start an interactive job:
+
+aliasing:
+
+# Interactive Jupter notebooks
+alias start_ijob="sinteractive --ntasks 2 --time 00:60:00 --mem 4GB"
+start_jupyter () {
+    ipnport=$(shuf -i8000-9999 -n1)
+    ipnip=$(hostname -i)
+    echo "Run on local >>>"
+    echo "ssh -N -L $ipnport:$ipnip:$ipnport skhakpas@ozstar.swin.edu.au"
+    jupcmd=$(jupyter-notebook --no-browser --port=$ipnport --ip=$ipnip)
+}
+export -f start_jupyter
+
+
+
+JUPYTER SESSION--> from Amarel
+	-"conda install jupyter"
+	-USAGE: "python run_jupyter2.py -partition=sstar -time=3:00:00 -r_port=9999"
+	-"squeue -u skhakpas", find out node (slepner___)
+	-"ssh -L 8887:john2:9999 skhakpas@ozstar.swin.edu.au"
+	-in browser, type "localhost:8888" and use token from jupyter_<date submitted>.err file 
+	-after localhost:8888, the notebook will start in /scratch/sk2705
+	-end session with "scancel <jobID>"
+
+RUN PYTHON FILE
+	-use same run_jupyter.py script, but modify "srun ______" with "python ____.py
+	-can also comment out rpot stuff
+	-USAGE: "python run_python.py -python_file=whatever.py"
+
+KILL Jupyter notebook port
+	- lsof -ti:<port number> | xargs kill -9

@@ -1,0 +1,3 @@
+scp -r skhakpas@ozstar.swin.edu.au:./codes/../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/30691 ~/Library/CloudStorage/GoogleDrive-khakpash.catalyst.fellowship@gmail.com/My\ Drive/Catalyst_project/caustic_maps
+scp -r skhakpas@ozstar.swin.edu.au:./codes/../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/30690 ~/Library/CloudStorage/GoogleDrive-khakpash.catalyst.fellowship@gmail.com/My\ Drive/Catalyst_project/caustic_maps
+scp -r skhakpas@ozstar.swin.edu.au:./codes/../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/30689 ~/Library/CloudStorage/GoogleDrive-khakpash.catalyst.fellowship@gmail.com/My\ Drive/Catalyst_project/caustic_maps
