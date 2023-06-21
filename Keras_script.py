@@ -8,7 +8,9 @@ from tqdm import tqdm
 import pickle as pkl
 import json
 import math
-
+from my_classes_convolved import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
+        compareinout2D, fig_loss, read_saved_model, model_design_3l, model_design_Unet, tweedie_loss_func, \
+        basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, model_design_Unet_resnet, model_design_Unet_resnet2
 # date = time.strftime("%y-%m-%d-%H-%M-%S")
 
 
@@ -130,14 +132,6 @@ convolve = args.convolve
 rsrc = float(args.rsrc)
 output_dir = './../results/' + args.date + '/'
 
-if convolve:
-    from my_classes_convolved import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
-        compareinout2D, fig_loss, read_saved_model, model_design_3l, model_design_Unet, tweedie_loss_func, \
-        basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, model_design_Unet_resnet, model_design_Unet_resnet2
-else:
-    from my_classes import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
-        compareinout2D, fig_loss, read_saved_model, model_design_3l, model_design_Unet, tweedie_loss_func, \
-        basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, model_design_Unet_resnet, model_design_Unet_resnet2
 
 print('Setting up the network parameters...')
 model_designs = {'2l': model_design_2l,
@@ -287,7 +281,7 @@ if convolve:
     test_output_option = 'map_conv_norm'
 else:
     test_output_option = 'map'
-x_test = test_generator.map_reader(test_set_index, output='test_output_option')
+x_test = test_generator.map_reader(test_set_index, output=test_output_option)
 generator_indexes = test_generator.get_generator_indexes()
 x_test = x_test[generator_indexes]
 test_set_index = test_set_index[generator_indexes]
