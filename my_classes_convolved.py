@@ -139,7 +139,7 @@ class DataGenerator(keras.utils.Sequence):
         X = np.empty((len(list_IDs_temp), self.dim[0], self.dim[1], self.n_channels))
         meta = pd.read_csv(self.conv_const_path)
         conv_const = meta.loc[meta['ID'].isin(list_IDs_temp)]['const'].values
-        macro_mag = meta.loc[meta['ID'].isin(list_IDs_temp)]['const'].values
+        # macro_mag = meta.loc[meta['ID'].isin(list_IDs_temp)]['const'].values
 
         # Generate data
         for i, ID in enumerate(list_IDs_temp):
@@ -155,10 +155,10 @@ class DataGenerator(keras.utils.Sequence):
                 tmp = np.log10(tmp + 0.004)
                 X[i,] = NormalizeData(tmp)
             elif output == 'map_conv':
-                X[i,] = self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
+                tmp_conv = self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
+                X[i,] = self.cv.magcon
             elif output == 'map_conv_norm':
-                tmp_conv = np.log10(self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1]))))
-                X[i,] = NormalizeData(tmp_conv)
+                X[i,] = np.log10(self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1]))))
 
         return X
 

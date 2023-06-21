@@ -34,6 +34,7 @@ def parse_options():
                         default='',
                         help='Specify the directory where the results should be stored.')
 
+
     # Parses through the arguments and saves them within the keyword args
     arguments = parser.parse_args()
     return arguments
@@ -64,7 +65,7 @@ log_maxs = []
 
 mag_avg = []
 ray_avg = []
-cv = convolver()
+cv = convolver(rsrc=conv_rsrc)
 
 mins_conv = []
 maxs_conv = []
@@ -77,6 +78,8 @@ for ID in tqdm(ls_maps):
     f1 = open(map_direc + str(ID) + "/map.bin", "rb")
     map_tmp = np.fromfile(f1, 'i', -1, "")
     maps = (np.reshape(map_tmp, (-1, 10000)))
+    mag_convertor = float(lines[0].split(' ')[0])
+    maps = maps * mag_convertor
     if stat:
         mins.append(np.min(maps))
         maxs.append(np.max(maps))
@@ -86,11 +89,11 @@ for ID in tqdm(ls_maps):
 
     f2 = open(map_direc + str(ID) + "/mapmeta.dat", "r")
     lines = f2.readlines()
+    mag_avg.append(float(lines[0].split(' ')[0]))
+    ray_avg.append(float(lines[0].split(' ')[1].split('/')[0]))
 
     if conv_stat:
-        mag_convertor = float(lines[0].split(' ')[0])
-        tmp = tmp * mag_convertor
-        cv.conv_map(tmp)
+        cv.conv_map(maps)
         conv_map_tmp = cv.magcon
         mins_conv.append(np.min(conv_map_tmp))
         maxs_conv.append(np.max(conv_map_tmp))
@@ -98,17 +101,11 @@ for ID in tqdm(ls_maps):
 
 
     if stat:
-        mag_avg.append(float(lines[0].split(' ')[0]))
-        ray_avg.append(float(lines[0].split(' ')[1].split('/')[0]))
-
-    # print(ID, np.min(maps), np.max(maps), float(lines[0].split(' ')[0]), float(lines[0].split(' ')[1].split('/')[0]))
 
         df = pd.DataFrame({'ID': ls_maps, 'min': mins, 'max': maxs, 'mag_avg': mag_avg, 'ray_avg': ray_avg})
-# print(df)
-        df.to_csv(output_direc + 'all_maps_meta.csv')
+        df.to_csv(output_direc + 'all_maps_meta2.csv')
 
     if conv_stat:
         df = pd.DataFrame({'ID': ls_maps, 'min': mins_conv, 'max': maxs_conv, 'mag_avg': mag_avg, 'ray_avg': ray_avg})
-        # print(df)
         df.to_csv(output_direc + 'all_conv_maps_meta_rsrc_'+str(conv_rsrc)+'.csv')
 
