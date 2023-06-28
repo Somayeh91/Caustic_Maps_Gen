@@ -78,6 +78,8 @@ for ID in tqdm(ls_maps):
     f1 = open(map_direc + str(ID) + "/map.bin", "rb")
     map_tmp = np.fromfile(f1, 'i', -1, "")
     maps = (np.reshape(map_tmp, (-1, 10000)))
+    f2 = open(map_direc + str(ID) + "/mapmeta.dat", "r")
+    lines = f2.readlines()
     mag_convertor = float(lines[0].split(' ')[0])
     maps = maps * mag_convertor
     if stat:
@@ -87,8 +89,7 @@ for ID in tqdm(ls_maps):
         # log_maxs.append(np.max(maps))
 
 
-    f2 = open(map_direc + str(ID) + "/mapmeta.dat", "r")
-    lines = f2.readlines()
+
     mag_avg.append(float(lines[0].split(' ')[0]))
     ray_avg.append(float(lines[0].split(' ')[1].split('/')[0]))
 
@@ -100,12 +101,12 @@ for ID in tqdm(ls_maps):
 
 
 
-    if stat:
+if stat:
 
-        df = pd.DataFrame({'ID': ls_maps, 'min': mins, 'max': maxs, 'mag_avg': mag_avg, 'ray_avg': ray_avg})
-        df.to_csv(output_direc + 'all_maps_meta2.csv')
+    df = pd.DataFrame({'ID': ls_maps, 'min': mins, 'max': maxs, 'mag_avg': mag_avg, 'ray_avg': ray_avg})
+    df.to_csv(output_direc + 'all_maps_meta2.csv')
 
-    if conv_stat:
-        df = pd.DataFrame({'ID': ls_maps, 'min': mins_conv, 'max': maxs_conv, 'mag_avg': mag_avg, 'ray_avg': ray_avg})
-        df.to_csv(output_direc + 'all_conv_maps_meta_rsrc_'+str(conv_rsrc)+'.csv')
+if conv_stat:
+    df = pd.DataFrame({'ID': ls_maps, 'min': mins_conv, 'max': maxs_conv, 'mag_avg': mag_avg, 'ray_avg': ray_avg})
+    df.to_csv(output_direc + 'all_conv_maps_meta_rsrc_'+str(conv_rsrc)+'.csv')
 

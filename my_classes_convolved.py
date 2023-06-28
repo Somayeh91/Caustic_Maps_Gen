@@ -30,6 +30,8 @@ from codes.normalizing_flows.normalizing_flows.models.vae2 import GatedConvVAE
 
 def tweedie_loss_func(p):
     def tweedie_loglikelihood(y, y_hat):
+        print(np.mean(y.eval(session=tf.compat.v1.Session())),
+              np.mean(y_hat.eval(session=tf.compat.v1.Session())), "Inside loss function")
         loss = - y * tf.pow(y_hat, 1 - p) / (1 - p) + \
                tf.pow(y_hat, 2 - p) / (2 - p)
         return tf.reduce_mean(loss)
@@ -104,7 +106,7 @@ class DataGenerator(keras.utils.Sequence):
                 Y[i,:,:,int(self.n_channels-1)] = self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
 
             tmp = np.log10(tmp + 0.004)
-            X[i,] = NormalizeData(tmp)
+            X[i, ] = NormalizeData(tmp)
 
             # except ValueError:
             #     pass
@@ -150,26 +152,17 @@ class DataGenerator(keras.utils.Sequence):
             tmp = maps[0::self.res_scale, 0::self.res_scale].reshape((self.dim[0], self.dim[1], self.n_channels))
             tmp = tmp * conv_const[i]
             if output == 'map':
-                X[i,] = tmp
+                X[i, :, :, 0] = tmp.reshape((self.dim[0], self.dim[1]))
             elif output == 'map_norm':
                 tmp = np.log10(tmp + 0.004)
-                X[i,] = NormalizeData(tmp)
+                X[i, :, :, 0] = NormalizeData(tmp).reshape((self.dim[0], self.dim[1]))
             elif output == 'map_conv':
-                tmp_conv = self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
-                X[i,] = self.cv.magcon
+                self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
+                X[i, :, :, 0] = self.cv.magcon
             elif output == 'map_conv_norm':
-                X[i,] = np.log10(self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1]))))
-
-        return X
-
-
-
-
-
-
-
-            # except ValueError:
-            #     pass
+                self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
+                tmp_conv = np.log10(self.cv.magcon)
+                X[i, :, :, 0] = NormalizeData(tmp_conv).reshape((self.dim[0], self.dim[1]))
 
         return X
 

@@ -132,6 +132,8 @@ convolve = args.convolve
 rsrc = float(args.rsrc)
 output_dir = './../results/' + args.date + '/'
 
+print('Arguments are:')
+print('Loss function: ', )
 
 print('Setting up the network parameters...')
 model_designs = {'2l': model_design_2l,
@@ -239,6 +241,9 @@ else:
     params['date'] = date
     params['saved_model'] = saved_model
     params['sample_size'] = sample_size
+    params['loss_function'] = loss_function_key
+    params['optimizer'] = optimizer_key
+    params['model_design'] = model_design_key
 
     print(json.dumps(params, indent=len(params.keys())))
 
