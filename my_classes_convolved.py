@@ -15,7 +15,6 @@ from keras.models import Model
 from keras.layers import Input, concatenate, Conv2D, MaxPooling2D, Conv2DTranspose, UpSampling2D, Add
 import sys
 
-
 from convolver import *
 
 sys.path += ['..']
@@ -27,11 +26,13 @@ from codes.normalizing_flows.normalizing_flows.flows import flow
 from codes.normalizing_flows.normalizing_flows.flows.sylvester import TriangularSylvester
 from codes.normalizing_flows.normalizing_flows.models.vae2 import GatedConvVAE
 
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+
 
 def tweedie_loss_func(p):
     def tweedie_loglikelihood(y, y_hat):
-        print(np.mean(y.eval(session=tf.compat.v1.Session())),
-              np.mean(y_hat.eval(session=tf.compat.v1.Session())), "Inside loss function")
+        # print(np.mean(y.eval(session=tf.compat.v1.Session())),
+        #       np.mean(y_hat.eval(session=tf.compat.v1.Session())), "Inside loss function")
         loss = - y * tf.pow(y_hat, 1 - p) / (1 - p) + \
                tf.pow(y_hat, 2 - p) / (2 - p)
         return tf.reduce_mean(loss)
@@ -101,12 +102,15 @@ class DataGenerator(keras.utils.Sequence):
             map_tmp = np.fromfile(f, 'i', -1, "")
             maps = (np.reshape(map_tmp, (-1, 10000)))
             tmp = maps[0::self.res_scale, 0::self.res_scale].reshape((self.dim[0], self.dim[1], self.n_channels))
+            print(np.mean(tmp))
             tmp = tmp * self.conv_const[i]
+            print(np.mean(tmp))
             if self.convolve:
-                Y[i,:,:,int(self.n_channels-1)] = self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
-
+                Y[i, :, :, int(self.n_channels - 1)] = self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
+            print(self.convolve)
             tmp = np.log10(tmp + 0.004)
-            X[i, ] = NormalizeData(tmp)
+            X[i,] = NormalizeData(tmp)
+            print(np.mean(NormalizeData(tmp)))
 
             # except ValueError:
             #     pass
@@ -124,7 +128,7 @@ class DataGenerator(keras.utils.Sequence):
     def get_generator_indexes(self):
         return self.indexes
 
-    def map_reader(self, list_IDs_temp, output = 'map'):
+    def map_reader(self, list_IDs_temp, output='map'):
         '''
         This function is written to help see if the pipeline for reading the maps is working fine.
         For a given set of IDs, It reads the map, and takes log10, and normalized them to be between -3 and 6.
@@ -303,64 +307,65 @@ def model_design_Unet(input_side):
 
     return autoencoder_model
 
-def model_design_Unet_resnet(input_side, n_channels = 1, af = 'relu'):
+
+def model_design_Unet_resnet(input_side, n_channels=1, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
-    bl1_conv1 = layers.Conv2D(32, (3, 3), activation= af, strides=1, padding="same")(input_img)
-    bl1_conv2 = layers.Conv2D(32, (3, 3), activation= af, strides=1, padding="same")(bl1_conv1)
+    bl1_conv1 = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(input_img)
+    bl1_conv2 = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(bl1_conv1)
 
-    bl1_conv3 = layers.Conv2D(32, (3, 3), activation= af, strides=1, padding="same")(input_img)
+    bl1_conv3 = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(input_img)
     bl1_add = Add()([bl1_conv3, bl1_conv2])
     bl1_pl = layers.MaxPooling2D((2, 2))(bl1_add)
 
-    bl2_conv1 = layers.Conv2D(64, (3, 3), activation= af, strides=1, padding="same")(bl1_pl)
-    bl2_conv2 = layers.Conv2D(64, (3, 3), activation= af, strides=1, padding="same")(bl2_conv1)
+    bl2_conv1 = layers.Conv2D(64, (3, 3), activation=af, strides=1, padding="same")(bl1_pl)
+    bl2_conv2 = layers.Conv2D(64, (3, 3), activation=af, strides=1, padding="same")(bl2_conv1)
 
-    bl2_conv3 = layers.Conv2D(64, (3, 3), activation= af, strides=1, padding="same")(bl1_pl)
+    bl2_conv3 = layers.Conv2D(64, (3, 3), activation=af, strides=1, padding="same")(bl1_pl)
     bl2_add = Add()([bl2_conv3, bl2_conv2])
     bl2_pl = layers.MaxPooling2D((2, 2))(bl2_add)
 
-    bl3_conv1 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl2_pl)
-    bl3_conv2 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl3_conv1)
+    bl3_conv1 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl2_pl)
+    bl3_conv2 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl3_conv1)
 
-    bl3_conv3 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl2_pl)
+    bl3_conv3 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl2_pl)
     bl3_add = Add()([bl3_conv3, bl3_conv2])
     bl3_pl = layers.MaxPooling2D((2, 2))(bl3_add)
 
-    bl4_conv1 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl3_pl)
-    bl4_conv2 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl4_conv1)
+    bl4_conv1 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl3_pl)
+    bl4_conv2 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl4_conv1)
 
-    bl4_conv3 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl3_pl)
+    bl4_conv3 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl3_pl)
     bl4_add = Add()([bl4_conv3, bl4_conv2])
     bl4_pl = layers.MaxPooling2D((5, 5))(bl4_add)
 
-    encoded = layers.Conv2D(1, (4, 4), activation= af, strides=1, padding="same")(bl4_pl)
+    encoded = layers.Conv2D(1, (4, 4), activation=af, strides=1, padding="same")(bl4_pl)
 
-    bl5_conv1 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(encoded)
-    bl5_conv2 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_conv1)
+    bl5_conv1 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(encoded)
+    bl5_conv2 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(bl5_conv1)
 
-    bl5_conv3 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(encoded)
+    bl5_conv3 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(encoded)
     bl5_add = Add()([bl5_conv3, bl5_conv2])
     bl5_pl = layers.UpSampling2D((5, 5))(bl5_add)
 
-    bl6_conv1 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_pl)
-    bl6_conv2 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl6_conv1)
+    bl6_conv1 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(bl5_pl)
+    bl6_conv2 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(bl6_conv1)
 
-    bl6_conv3 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_pl)
+    bl6_conv3 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(bl5_pl)
     bl6_add = Add()([bl6_conv3, bl6_conv2])
     bl6_pl = layers.UpSampling2D((2, 2))(bl6_add)
 
-    bl7_conv1 = layers.Conv2DTranspose(64, (3, 3), activation= af, strides=1, padding="same")(bl6_pl)
-    bl7_conv2 = layers.Conv2DTranspose(64, (3, 3), activation= af, strides=1, padding="same")(bl7_conv1)
+    bl7_conv1 = layers.Conv2DTranspose(64, (3, 3), activation=af, strides=1, padding="same")(bl6_pl)
+    bl7_conv2 = layers.Conv2DTranspose(64, (3, 3), activation=af, strides=1, padding="same")(bl7_conv1)
 
-    bl7_conv3 = layers.Conv2DTranspose(64, (3, 3), activation= af, strides=1, padding="same")(bl6_pl)
+    bl7_conv3 = layers.Conv2DTranspose(64, (3, 3), activation=af, strides=1, padding="same")(bl6_pl)
     bl7_add = Add()([bl7_conv3, bl7_conv2])
     bl7_pl = layers.UpSampling2D((2, 2))(bl7_add)
 
-    bl8_conv1 = layers.Conv2DTranspose(32, (3, 3), activation= af, strides=1, padding="same")(bl7_pl)
-    bl8_conv2 = layers.Conv2DTranspose(32, (3, 3), activation= af, strides=1, padding="same")(bl8_conv1)
+    bl8_conv1 = layers.Conv2DTranspose(32, (3, 3), activation=af, strides=1, padding="same")(bl7_pl)
+    bl8_conv2 = layers.Conv2DTranspose(32, (3, 3), activation=af, strides=1, padding="same")(bl8_conv1)
 
-    bl8_conv3 = layers.Conv2DTranspose(32, (3, 3), activation= af, strides=1, padding="same")(bl7_pl)
+    bl8_conv3 = layers.Conv2DTranspose(32, (3, 3), activation=af, strides=1, padding="same")(bl7_pl)
     bl8_add = Add()([bl8_conv3, bl8_conv2])
     bl8_pl = layers.UpSampling2D((2, 2))(bl8_add)
 
@@ -370,69 +375,70 @@ def model_design_Unet_resnet(input_side, n_channels = 1, af = 'relu'):
 
     return autoencoder_model
 
-def model_design_Unet_resnet2(input_side, n_channels = 1, af = 'relu'):
+
+def model_design_Unet_resnet2(input_side, n_channels=1, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
-    bl1_conv1 = layers.Conv2D(32, (3, 3), activation= af, strides=1, padding="same")(input_img)
-    bl1_conv2 = layers.Conv2D(32, (3, 3), activation= af, strides=1, padding="same")(bl1_conv1)
+    bl1_conv1 = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(input_img)
+    bl1_conv2 = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(bl1_conv1)
 
     # bl1_conv3 = layers.InputLayer(input_shape=(input_side, input_side, n_channels))
     # bl1_add = Add()([bl1_conv1, bl1_conv2])
 
     bl1_pl = layers.MaxPooling2D((2, 2))(bl1_conv2)
 
-    bl2_conv1 = layers.Conv2D(64, (3, 3), activation= af, strides=1, padding="same")(bl1_pl)
-    bl2_conv2 = layers.Conv2D(64, (3, 3), activation= af, strides=1, padding="same")(bl2_conv1)
+    bl2_conv1 = layers.Conv2D(64, (3, 3), activation=af, strides=1, padding="same")(bl1_pl)
+    bl2_conv2 = layers.Conv2D(64, (3, 3), activation=af, strides=1, padding="same")(bl2_conv1)
 
     # bl2_conv3 = layers.Conv2D(64, (3, 3), activation= af, strides=1, padding="same")(bl1_pl)
     # bl2_add = Add()([bl1_pl, bl2_conv2])
     bl2_concat = concatenate([bl1_pl, bl2_conv2], axis=3)
     bl2_pl = layers.MaxPooling2D((2, 2))(bl2_concat)
 
-    bl3_conv1 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl2_pl)
-    bl3_conv2 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl3_conv1)
+    bl3_conv1 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl2_pl)
+    bl3_conv2 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl3_conv1)
 
     # bl3_conv3 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl2_pl)
     # bl3_add = Add()([bl2_pl, bl3_conv2])
     bl3_concat = concatenate([bl2_pl, bl3_conv2], axis=3)
     bl3_pl = layers.MaxPooling2D((2, 2))(bl3_concat)
 
-    bl4_conv1 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl3_pl)
-    bl4_conv2 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl4_conv1)
+    bl4_conv1 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl3_pl)
+    bl4_conv2 = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(bl4_conv1)
 
     # bl4_conv3 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl3_pl)
     # bl4_add = Add()([bl3_pl, bl4_conv2])
     bl4_concat = concatenate([bl3_pl, bl4_conv2], axis=3)
     bl4_pl = layers.MaxPooling2D((5, 5))(bl4_concat)
 
-    encoded = layers.Conv2D(1, (4, 4), activation= af, strides=1, padding="same")(bl4_pl)
+    encoded = layers.Conv2D(1, (4, 4), activation=af, strides=1, padding="same")(bl4_pl)
 
-    bl5_conv1 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(encoded)
-    bl5_conv2 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_conv1)
+    bl5_conv1 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(encoded)
+    bl5_conv2 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(bl5_conv1)
 
     # bl5_conv3 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(encoded)
     # bl5_add = Add()([encoded, bl5_conv2])
     bl5_concat = concatenate([encoded, bl5_conv2], axis=3)
     bl5_pl = layers.UpSampling2D((5, 5))(bl5_concat)
 
-    bl6_conv1 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_pl)
-    bl6_conv2 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl6_conv1)
+    bl6_conv1 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(bl5_pl)
+    bl6_conv2 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(bl6_conv1)
 
     # bl6_conv3 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_pl)
     # bl6_add = Add()([bl5_pl, bl6_conv2])
     bl6_concat = concatenate([bl5_pl, bl6_conv2], axis=3)
     bl6_pl = layers.UpSampling2D((2, 2))(bl6_concat)
 
-    bl7_conv1 = layers.Conv2DTranspose(64, (3, 3), activation= af, strides=1, padding="same")(bl6_pl)
-    bl7_conv2 = layers.Conv2DTranspose(64, (3, 3), activation= af, strides=1, padding="same")(bl7_conv1)
+    bl7_conv1 = layers.Conv2DTranspose(64, (3, 3), activation=af, strides=1, padding="same")(bl6_pl)
+    bl7_conv2 = layers.Conv2DTranspose(64, (3, 3), activation=af, strides=1, padding="same")(bl7_conv1)
 
     # bl7_conv3 = layers.Conv2DTranspose(64, (3, 3), activation= af, strides=1, padding="same")(bl6_pl)
     # bl7_add = Add()([bl6_pl, bl7_conv2])
     bl7_concat = concatenate([bl6_pl, bl7_conv2], axis=3)
     bl7_pl = layers.UpSampling2D((2, 2))(bl7_concat)
 
-    bl8_conv1 = layers.Conv2DTranspose(32, (3, 3), activation= af, strides=1, padding="same")(bl7_pl)
-    bl8_conv2 = layers.Conv2DTranspose(32, (3, 3), activation= af, strides=1, padding="same")(bl8_conv1)
+    bl8_conv1 = layers.Conv2DTranspose(32, (3, 3), activation=af, strides=1, padding="same")(bl7_pl)
+    bl8_conv2 = layers.Conv2DTranspose(32, (3, 3), activation=af, strides=1, padding="same")(bl8_conv1)
 
     # bl8_conv3 = layers.Conv2DTranspose(32, (3, 3), activation= af, strides=1, padding="same")(bl7_pl)
     # bl8_add = Add()([bl7_pl, bl8_conv2])
@@ -444,6 +450,7 @@ def model_design_Unet_resnet2(input_side, n_channels = 1, af = 'relu'):
     autoencoder_model = keras.Model(input_img, decoded)
 
     return autoencoder_model
+
 
 def model_design_Unet2(input_side):
     input_img = keras.Input(shape=(input_side, input_side, 1))
@@ -764,19 +771,22 @@ def model_compile(model, learning_rate, optimizer_=keras.optimizers.Adam,
                   loss=loss)
 
 
-def model_fit2(model, epochs, training_generator, validation_generator, model_design):
-    if model_design == 'Unet_NF':
-        history = model.fit_generator(generator=training_generator,
-                                      validation_data=validation_generator,
-                                      epochs=epochs)
-    else:
-        history = model.fit_generator(generator=training_generator,
-                                      validation_data=validation_generator,
-                                      epochs=epochs,
-                                      use_multiprocessing=True,
-                                      workers=4
-                                      )
+def model_fit2(model, epochs, training_generator, validation_generator, filepath=None,
+               early_callback_=False, early_callback_type='early_stop'):
+    ec = []
+    if early_callback_:
 
+        if early_callback_type == 'early_stop':
+            ec.append(EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=50, min_delta=0.00001))
+        elif early_callback_type == 'model_checkpoint':
+            ec.append(ModelCheckpoint(
+                filepath=filepath,
+                save_freq='epoch'))
+
+    history = model.fit_generator(generator=training_generator,
+                                  validation_data=validation_generator,
+                                  epochs=epochs,
+                                  callbacks=ec)
     return history
 
 

@@ -100,6 +100,12 @@ def parse_options():
     parser.add_argument('-rsrc', action='store',
                         default=1,
                         help='Size of the source in units of lens Einstein radius.')
+    parser.add_argument('-early_callback', action='store',
+                        default='False',
+                        help='Do you want to add early calback when fitting the model?')
+    parser.add_argument('-early_callback_type', action='store',
+                        default=1,
+                        help='What type of early callback you want?')
 
     # Parses through the arguments and saves them within the keyword args
     arguments = parser.parse_args()
@@ -118,6 +124,8 @@ n_flows = int(args.n_flows)
 z_size = args.bottleneck_size
 n_test_set = int(args.test_set_size)
 test_set_selection = args.test_set_selection
+early_callback = args.early_callback
+early_callback_type = args.early_callback_type
 
 date = args.date
 os.system("mkdir ./../results/" + str(date))
@@ -268,7 +276,9 @@ else:
 # Train the model
 autoencoder_history = model_fit2(autoencoder, n_epochs,
                                  training_generator, validation_generator,
-                                 model_designs[model_design_key])
+                                 filepath = output_dir,
+                                 early_callback_ = early_callback,
+                                 early_callback_type = early_callback_type)
 
 print('Saving the model...')
 autoencoder.save(output_dir + 'model_' + str(params['dim']) + '_' + str(params['batch_size']) + '_' +
