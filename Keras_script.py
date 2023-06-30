@@ -8,7 +8,7 @@ from tqdm import tqdm
 import pickle as pkl
 import json
 import math
-from my_classes_convolved import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
+from my_classes import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
         compareinout2D, fig_loss, read_saved_model, model_design_3l, model_design_Unet, tweedie_loss_func, \
         basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, model_design_Unet_resnet, model_design_Unet_resnet2
 # date = time.strftime("%y-%m-%d-%H-%M-%S")
@@ -94,12 +94,6 @@ def parse_options():
     parser.add_argument('-test_set_selection', action='store',
                         default='random',
                         help='Do you want to choose your test set randomly or are you looking for a chosen set of IDs')
-    parser.add_argument('-convolve', action='store',
-                        default='False',
-                        help='Do you want your target maps to be convolved maps or not.')
-    parser.add_argument('-rsrc', action='store',
-                        default=1,
-                        help='Size of the source in units of lens Einstein radius.')
     parser.add_argument('-early_callback', action='store',
                         default='False',
                         help='Do you want to add early calback when fitting the model?')
@@ -136,8 +130,6 @@ lr_rate = float(args.lr_rate)
 n_epochs = int(args.n_epochs)
 dim = int(args.dim)
 sample_size = int(args.sample_size)
-convolve = args.convolve
-rsrc = float(args.rsrc)
 output_dir = './../results/' + args.date + '/'
 
 print('Arguments are:')
@@ -168,9 +160,7 @@ params = {'dim': dim,
           'res_scale': int(args.res_scale),
           'path': args.directory,
           'shuffle': True,
-          'conv_const': args.conversion_file_directory,
-          'convolve': convolve,
-          'rsrc': rsrc}
+          'conv_const': args.conversion_file_directory}
 keys_old = params.keys()
 
 # Datasets

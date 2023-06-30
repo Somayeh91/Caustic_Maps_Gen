@@ -720,19 +720,22 @@ def model_compile(model, learning_rate, optimizer_=keras.optimizers.Adam,
                   loss=loss)
 
 
-def model_fit2(model, epochs, training_generator, validation_generator, model_design):
-    if model_design == 'Unet_NF':
-        history = model.fit_generator(generator=training_generator,
-                            validation_data=validation_generator,
-                            epochs=epochs)
-    else:
-        history = model.fit_generator(generator=training_generator,
+def model_fit2(model, epochs, training_generator, validation_generator, filepath=None,
+               early_callback_=False, early_callback_type='early_stop'):
+    ec = []
+    if early_callback_:
+
+        if early_callback_type == 'early_stop':
+            ec.append(EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=50, min_delta=0.00001))
+        elif early_callback_type == 'model_checkpoint':
+            ec.append(ModelCheckpoint(
+                filepath=filepath,
+                save_freq='epoch'))
+
+    history = model.fit_generator(generator=training_generator,
                                   validation_data=validation_generator,
                                   epochs=epochs,
-                                  use_multiprocessing=True,
-                                  workers=4
-                                  )
-
+                                  callbacks=ec)
     return history
 
 

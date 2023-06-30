@@ -31,8 +31,14 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint
 
 def tweedie_loss_func(p):
     def tweedie_loglikelihood(y, y_hat):
-        # print(np.mean(y.eval(session=tf.compat.v1.Session())),
-        #       np.mean(y_hat.eval(session=tf.compat.v1.Session())), "Inside loss function")
+        # # print(np.mean(y.eval(session=tf.compat.v1.Session())),
+        # #       np.mean(y_hat.eval(session=tf.compat.v1.Session())), "Inside loss function")
+        # init_op = tf.initialize_all_variables()
+        # with tf.Session() as sess:
+        #     sess.run(init_op)  # execute init_op
+        #     # print the random values that we sample
+        #     print(sess.run(y_hat))
+        tf.print("y_hat:", y_hat, output_stream=sys.stdout)
         loss = - y * tf.pow(y_hat, 1 - p) / (1 - p) + \
                tf.pow(y_hat, 2 - p) / (2 - p)
         return tf.reduce_mean(loss)
@@ -102,15 +108,15 @@ class DataGenerator(keras.utils.Sequence):
             map_tmp = np.fromfile(f, 'i', -1, "")
             maps = (np.reshape(map_tmp, (-1, 10000)))
             tmp = maps[0::self.res_scale, 0::self.res_scale].reshape((self.dim[0], self.dim[1], self.n_channels))
-            print(np.mean(tmp))
+            # print(np.mean(tmp))
             tmp = tmp * self.conv_const[i]
-            print(np.mean(tmp))
+            # print(np.mean(tmp))
             if self.convolve:
                 Y[i, :, :, int(self.n_channels - 1)] = self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
-            print(self.convolve)
+            # print(self.convolve)
             tmp = np.log10(tmp + 0.004)
             X[i,] = NormalizeData(tmp)
-            print(np.mean(NormalizeData(tmp)))
+            # print(np.mean(NormalizeData(tmp)))
 
             # except ValueError:
             #     pass
