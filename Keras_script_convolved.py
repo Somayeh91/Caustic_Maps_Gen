@@ -10,7 +10,8 @@ import json
 import math
 from my_classes_convolved import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
         compareinout2D, fig_loss, read_saved_model, model_design_3l, model_design_Unet, tweedie_loss_func, \
-        basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, model_design_Unet_resnet, model_design_Unet_resnet2
+        basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, model_design_Unet_resnet, model_design_Unet_resnet2,\
+        lc_loss_func
 # date = time.strftime("%y-%m-%d-%H-%M-%S")
 
 
@@ -53,7 +54,7 @@ def parse_options():
                         default='./../data/maps_selected_kappa_equal_gamma.csv',
                         help='Specify the directory where the conversion parameters.')
     parser.add_argument('-test_set_size', action='store',
-                        default=100,
+                        default=10,
                         help='Size of the test set.'),
     parser.add_argument('-sample_size', action='store',
                         default=3828,
@@ -75,6 +76,10 @@ def parse_options():
                         default='binary_crossentropy',
                         help='What is the loss function?'
                         )
+    parser.add_argument('-lc_loss_function_metric', action='store',
+                        default='mse',
+                        help='What is the metric to calculate statistics in the lc loss function?'
+                        )
     parser.add_argument('-optimizer', action='store',
                         default='adam',
                         help='What is the optimizer?'
@@ -95,7 +100,7 @@ def parse_options():
                         default='random',
                         help='Do you want to choose your test set randomly or are you looking for a chosen set of IDs')
     parser.add_argument('-convolve', action='store',
-                        default='False',
+                        default='True',
                         help='Do you want your target maps to be convolved maps or not.')
     parser.add_argument('-rsrc', action='store',
                         default=1,
@@ -126,6 +131,7 @@ n_test_set = int(args.test_set_size)
 test_set_selection = args.test_set_selection
 early_callback = args.early_callback
 early_callback_type = args.early_callback_type
+lc_loss_function_metric = args.lc_loss_function_metric
 
 date = args.date
 os.system("mkdir ./../results/" + str(date))
@@ -155,7 +161,9 @@ model_designs = {'2l': model_design_2l,
                  'Unet_resnet2': model_design_Unet_resnet2}
 loss_functions = {'binary_crossentropy': keras.losses.BinaryCrossentropy(from_logits=True),
                   'poisson': keras.losses.Poisson(),
-                  'tweedie': tweedie_loss_func(0.5)}
+                  'tweedie': tweedie_loss_func(0.5),
+                  'lc_loss': lc_loss_func(lc_loss_function_metric)
+                  }
 optimizers = {'adam': keras.optimizers.Adam,
               'sgd': keras.optimizers.SGD,
               'adamax': keras.optimizers.Adamax,

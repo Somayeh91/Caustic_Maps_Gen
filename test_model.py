@@ -1,5 +1,6 @@
 from my_classes import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
-    compareinout2D, fig_loss, tweedie_loss_func, basic_unet, model_design_Unet2, model_design_Unet3, vae_NF
+    compareinout2D, fig_loss, tweedie_loss_func, basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, \
+    lc_loss_func
 import numpy as np
 import argparse
 import keras
@@ -10,7 +11,6 @@ import os, sys
 import pickle as pkl
 import pandas as pd
 import math
-
 
 # date = time.strftime("%y-%m-%d")
 import tensorflow as tf
@@ -36,6 +36,7 @@ def parse_options():
                         help='Specify the directory where the maps are stored on the supercomputer.')
     parser.add_argument('-batch_size', action='store', default=16, help='Batch size for the autoencoder.')
     parser.add_argument('-n_epochs', action='store', default=20, help='Number of epochs.')
+    parser.add_argument('-n_channels', action='store', default=1, help='Number of channels.')
     parser.add_argument('-lr_rate', action='store', default=0.00001, help='Learning rate.')
     parser.add_argument('-res_scale', action='store', default=10,
                         help='With what scale should the original maps resoultion be reduced.')
@@ -50,7 +51,7 @@ def parse_options():
                         help='Specify the directory where the saved AI model is stored.')
     parser.add_argument('-partition_direc', action='store',
                         default=None,
-                        help='Specify the directory where the saved AI model is stored.')
+                        help='Specify the directory where the partition set is saved.')
     parser.add_argument('-output_dir', action='store',
                         default=None,
                         help='Specify the directory where the saved AI model is stored.'
@@ -84,6 +85,10 @@ def parse_options():
                         default='binary_crossentropy',
                         help='Whether or not you want to train an already-saved model.'
                         )
+    parser.add_argument('-lc_loss_function_metric', action='store',
+                        default='mse',
+                        help='What is the metric to calculate statistics in the lc loss function?'
+                        )
 
     # Parses through the arguments and saves them within the keyword args
     arguments = parser.parse_args()
@@ -100,10 +105,11 @@ save_bottleneck = args.save_bottleneck
 save_test_set = args.save_test_set
 print_loss = args.print_loss
 loss_func = args.loss_function
+lc_loss_function_metric = args.lc_loss_function_metric
 test_set_selection = args.test_set_selection
 params = {'dim': int(args.dim),
           'batch_size': int(args.batch_size),
-          'n_channels': 1,
+          'n_channels': int(args.n_channels),
           'res_scale': int(args.res_scale),
           'path': args.directory,
           'shuffle': True}
@@ -116,7 +122,8 @@ bottleneck_layer_name = {'2l': 'max_pooling2d_1',
                          'Unet_NF': vae_NF}
 loss_functions = {'binary_crossentropy': keras.losses.BinaryCrossentropy(from_logits=True),
                   'poisson': keras.losses.Poisson(),
-                  'tweedie': tweedie_loss_func(0.5)}
+                  'tweedie': tweedie_loss_func(0.5),
+                  'lc_loss': lc_loss_func(lc_loss_function_metric)}
 lr_rate = float(args.lr_rate)
 n_epochs = int(args.n_epochs)
 date = args.date
@@ -159,23 +166,25 @@ else:
 print('Selecting a test set based on ', test_set_selection)
 print('Length of test set indexes is ', str(len(test_set_index)))
 test_generator = DataGenerator(test_set_index, **params)
-x_test = test_generator.map_reader(test_set_index)
+x_test = test_generator.map_reader(test_set_index, output='map_norm')
 generator_indexes = test_generator.get_generator_indexes()
-print('initial test set IDs ',test_set_index)
+# print('initial test set IDs ',test_set_index)
 x_test = x_test[generator_indexes]
-test_set_index = test_set_index[generator_indexes]
+# test_set_index = test_set_index[generator_indexes]
 
-print('The true order of the IDs: ', test_set_index)
+# print('The true order of the IDs: ', test_set_index)
 
 test_set_index_argsort = np.asarray(test_set_index).argsort()
 test_set_index_argsort_argsort = np.asarray(test_set_index).argsort().argsort()
 
-
-print('sorted test set IDs', test_set_index)
-
+# print('sorted test set IDs', test_set_index)
 print('Loading in the saved model at ', model_direc)
-autoencoder = keras.models.load_model(model_direc,
-                                      custom_objects={'loss': loss_functions[loss_func]})
+tf.config.run_functions_eagerly(True)
+if loss_func == 'lc_loss':
+    autoencoder = keras.models.load_model(model_direc, custom_objects= \
+        {'lc_loglikelihood': lc_loss_func(metric=lc_loss_function_metric)})
+else:
+    autoencoder = keras.models.load_model(model_direc, custom_objects={'loss': loss_functions[loss_func]})
 autoencoder.summary()
 
 if predict:
@@ -184,6 +193,9 @@ if predict:
 
     print('Size of the test set: ', len(x_test))
     print('Size of the test set prediction: ', len(output_autoencoder))
+
+    print('Saving the predictions...')
+    np.save(output_dir + 'x_test_predictions', output_autoencoder)
 
     print('Saving output plots at ', output_dir)
     for i in tqdm(range(len(output_autoencoder))):
@@ -216,8 +228,7 @@ if save_bottleneck:
     bottleneck_output = autoencoder.get_layer(bt_ly_name).output
     model_bottleneck = keras.models.Model(inputs=autoencoder.input, outputs=bottleneck_output)
     print('Generating the latent space representation for ' + str(len(x_test)) + ' test objects...')
-    bottleneck_predictions = model_bottleneck.predict(x_test)
-
+    bottleneck_predictions = model_bottleneck.predict(test_generator)
 
     print('Saving the bottleneck and test set and labels at ', output_dir)
     np.save(output_dir + 'bottleneck', bottleneck_predictions)
@@ -234,4 +245,3 @@ if save_test_set:
 
     np.save(output_dir + 'x_test', x_test)
     np.save(output_dir + 'x_test_labels', true_labels_in_test_set_index_order)
-    np.save(output_dir + 'x_test_predictions', output_autoencoder)

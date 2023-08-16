@@ -14,6 +14,9 @@ import tensorflow as tf
 from keras.models import Model
 from keras.layers import Input, concatenate, Conv2D, MaxPooling2D, Conv2DTranspose, UpSampling2D, Add
 import sys
+from keras import backend as K
+
+from sf_fft import sf_fft
 
 
 sys.path += ['..']
@@ -35,12 +38,217 @@ def tweedie_loss_func(p):
     return tweedie_loglikelihood
 
 
+from scipy import interpolate
+
+
+def lc_maker_mse(map, distance=15, n_samp=100):
+    mapp, map_hat = map[0], map[1]
+
+    batch_size = mapp.shape[0]
+
+    nxpix = 1000
+    nypix = 1000
+    factor = 1
+    tot_r_e = 25
+    xr = [-(tot_r_e / factor), (tot_r_e / factor)]
+    yr = [-(tot_r_e / factor), (tot_r_e / factor)]
+
+    x0 = xr[0]
+    dx = xr[1] - x0  # map units in R_E
+
+    mappix = 1000 / dx
+    nsamp = n_samp
+    distance = distance  # in maps units
+    dt = (22 * 365) / 1.5  # from Kochanek (2004) for Q2237+0305: The quasar takes 22 years to go through 1.5 R_Ein
+    tmax = distance * dt
+
+    t = np.linspace(0, tmax, nsamp, dtype='int')
+    metric = []
+
+    for n in range(batch_size):
+        c = 0
+        # if origin==None:
+        mmap = mapp[n]
+        mmap_hat = map_hat[n]
+        origin = [i // 2 for i in mmap.shape]
+
+        for ang in [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]:
+            # -------- determine the x and y pixel values
+            rad = ang * np.pi / 180.0
+            crad = np.cos(rad)
+            srad = np.sin(rad)
+            pixsz = dx / float(nxpix)  # size of one pixel in R_E
+            drpix = distance / dx * float(nxpix) / float(nsamp)  # step's size in pixels
+            ix = [i * drpix * crad + origin[0] for i in range(nsamp)]
+            iy = [i * drpix * srad + origin[1] for i in range(nsamp)]
+
+            # -------- interpolate onto light curve pixels
+            #          (using interp2d!!!)
+            x, y = np.arange(float(nxpix)), np.arange(float(nypix))
+            mapint = interpolate.interp2d(x, y, mmap, kind='cubic')
+            mapint2 = interpolate.interp2d(x, y, mmap_hat, kind='cubic')
+
+            lc = np.array([mapint(i, j)[0] for i, j in zip(*[iy, ix])])
+            lc2 = np.array([mapint2(i, j)[0] for i, j in zip(*[iy, ix])])
+
+            c += np.sum((lc - lc2) ** 2)
+        metric.append(c / 12.)
+    return np.ndarray.astype(np.asarray(metric), np.float32)
+
+
+@tf.function(input_signature=[tf.TensorSpec(None, tf.float32)])
+def tf_lc_function_mse(input):
+    y = tf.numpy_function(lc_maker_mse, [input], tf.float32)
+    return y
+
+def lc_maker_sf_median(map, distance=15, n_samp=100):
+    mapp, map_hat = map[0], map[1]
+
+    batch_size = mapp.shape[0]
+
+    nxpix = 1000
+    nypix = 1000
+    factor = 1
+    tot_r_e = 25
+    xr = [-(tot_r_e / factor), (tot_r_e / factor)]
+    yr = [-(tot_r_e / factor), (tot_r_e / factor)]
+
+    x0 = xr[0]
+    dx = xr[1] - x0  # map units in R_E
+
+    mappix = 1000 / dx
+    nsamp = n_samp
+    distance = distance  # in maps units
+    dt = (22 * 365) / 1.5  # from Kochanek (2004) for Q2237+0305: The quasar takes 22 years to go through 1.5 R_Ein
+    tmax = distance * dt
+
+    t = np.linspace(0, tmax, nsamp, dtype='int')
+    metric = []
+
+    for n in range(batch_size):
+        c = 0
+        # if origin==None:
+        mmap = mapp[n]
+        mmap_hat = map_hat[n]
+        origin = [i // 2 for i in mmap.shape]
+
+        for ang in [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]:
+            # -------- determine the x and y pixel values
+            rad = ang * np.pi / 180.0
+            crad = np.cos(rad)
+            srad = np.sin(rad)
+            pixsz = dx / float(nxpix)  # size of one pixel in R_E
+            drpix = distance / dx * float(nxpix) / float(nsamp)  # step's size in pixels
+            ix = [i * drpix * crad + origin[0] for i in range(nsamp)]
+            iy = [i * drpix * srad + origin[1] for i in range(nsamp)]
+
+            # -------- interpolate onto light curve pixels
+            #          (using interp2d!!!)
+            x, y = np.arange(float(nxpix)), np.arange(float(nypix))
+            mapint = interpolate.interp2d(x, y, mmap, kind='cubic')
+            mapint2 = interpolate.interp2d(x, y, mmap_hat, kind='cubic')
+
+            lc = np.array([mapint(i, j)[0] for i, j in zip(*[iy, ix])])
+            lc2 = np.array([mapint2(i, j)[0] for i, j in zip(*[iy, ix])])
+
+            c += np.median(np.abs(sf_fft(lc) - sf_fft(lc2)))
+            c += np.median(np.abs(sf_fft(mmap) - sf_fft(mmap_hat)))
+
+        metric.append(c / 12.)
+    return np.ndarray.astype(np.asarray(metric), np.float32)
+
+
+@tf.function(input_signature=[tf.TensorSpec(None, tf.float32)])
+def tf_lc_function_sf_median(input):
+    y = tf.numpy_function(lc_maker_sf_median, [input], tf.float32)
+    return y
+
+def lc_maker_sf_max(map, distance=15, n_samp=100):
+    mapp, map_hat = map[0], map[1]
+
+    batch_size = mapp.shape[0]
+
+    nxpix = 1000
+    nypix = 1000
+    factor = 1
+    tot_r_e = 25
+    xr = [-(tot_r_e / factor), (tot_r_e / factor)]
+    yr = [-(tot_r_e / factor), (tot_r_e / factor)]
+
+    x0 = xr[0]
+    dx = xr[1] - x0  # map units in R_E
+
+    mappix = 1000 / dx
+    nsamp = n_samp
+    distance = distance  # in maps units
+    dt = (22 * 365) / 1.5  # from Kochanek (2004) for Q2237+0305: The quasar takes 22 years to go through 1.5 R_Ein
+    tmax = distance * dt
+
+    t = np.linspace(0, tmax, nsamp, dtype='int')
+    metric = []
+
+    for n in range(batch_size):
+        c = 0
+        # if origin==None:
+        mmap = mapp[n]
+        mmap_hat = map_hat[n]
+        origin = [i // 2 for i in mmap.shape]
+
+        for ang in [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]:
+            # -------- determine the x and y pixel values
+            rad = ang * np.pi / 180.0
+            crad = np.cos(rad)
+            srad = np.sin(rad)
+            pixsz = dx / float(nxpix)  # size of one pixel in R_E
+            drpix = distance / dx * float(nxpix) / float(nsamp)  # step's size in pixels
+            ix = [i * drpix * crad + origin[0] for i in range(nsamp)]
+            iy = [i * drpix * srad + origin[1] for i in range(nsamp)]
+
+            # -------- interpolate onto light curve pixels
+            #          (using interp2d!!!)
+            x, y = np.arange(float(nxpix)), np.arange(float(nypix))
+            mapint = interpolate.interp2d(x, y, mmap, kind='cubic')
+            mapint2 = interpolate.interp2d(x, y, mmap_hat, kind='cubic')
+
+            lc = np.array([mapint(i, j)[0] for i, j in zip(*[iy, ix])])
+            lc2 = np.array([mapint2(i, j)[0] for i, j in zip(*[iy, ix])])
+
+            c += np.max(np.abs(sf_fft(lc) - sf_fft(lc2)))
+            c += np.max(np.abs(sf_fft(mmap) - sf_fft(mmap_hat)))
+
+        metric.append(c / 12.)
+    return np.ndarray.astype(np.asarray(metric), np.float32)
+
+
+@tf.function(input_signature=[tf.TensorSpec(None, tf.float32)])
+def tf_lc_function_sf_max(input):
+    y = tf.numpy_function(lc_maker_sf_max, [input], tf.float32)
+    return y
+
+def lc_loss_func(metric = 'mse'):
+    def lc_loglikelihood(y, y_hat):
+        batch_size = tf.shape(y)[0]
+        data = tf.concat([tf.reshape(y, [1, batch_size, 1000, 1000]), tf.reshape(y_hat, [1, batch_size, 1000, 1000])],
+                         0)
+        if metric == 'mse':
+            c = K.sum(tf_lc_function_mse(data))
+        elif metric == 'sf_median':
+            c = K.sum(tf_lc_function_sf_median(data))
+        elif metric == 'sf_max':
+            c = K.sum(tf_lc_function_sf_max(data))
+        loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)(y, y_hat) + c
+
+        return tf.reduce_mean(loss)
+
+    return lc_loglikelihood
+
+
 class DataGenerator(keras.utils.Sequence):
     """Generates data for Keras"""
 
     def __init__(self, list_IDs, batch_size=8, dim=10000, n_channels=1,
                  res_scale=10, path='./../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/',
-                 shuffle=True, conv_const='./../data/all_maps_meta.csv'):
+                 shuffle=True, conv_const='./../data/all_maps_meta_kgs.csv'):
         """Initialization"""
 
         self.dim = (int(dim / res_scale), int(dim / res_scale))
@@ -67,6 +275,10 @@ class DataGenerator(keras.utils.Sequence):
         self.list_IDs_temp = [self.list_IDs[k] for k in indexes]
         meta = pd.read_csv(self.conv_const_path)
         self.conv_const = meta.loc[meta['ID'].isin(self.list_IDs_temp)]['const'].values
+        if self.n_channels == 4:
+            self.k = meta.loc[meta['ID'].isin(self.list_IDs_temp)]['k'].values
+            self.g = meta.loc[meta['ID'].isin(self.list_IDs_temp)]['g'].values
+            self.s = meta.loc[meta['ID'].isin(self.list_IDs_temp)]['s'].values
 
         # Generate data
         X, y = self.__data_generation()
@@ -89,23 +301,50 @@ class DataGenerator(keras.utils.Sequence):
             f = open(self.path + str(ID) + "/map.bin", "rb")
             map_tmp = np.fromfile(f, 'i', -1, "")
             maps = (np.reshape(map_tmp, (-1, 10000)))
-            tmp = maps[0::self.res_scale, 0::self.res_scale].reshape((self.dim[0], self.dim[1], self.n_channels))
-            tmp = np.log10(tmp * self.conv_const[i] + 0.004)
-            X[i, ] = NormalizeData(tmp)
+
+            if self.n_channels == 4:
+                tmp = maps[0::self.res_scale, 0::self.res_scale].reshape((self.dim[0], self.dim[1]))
+                tmp = np.log10(tmp * self.conv_const[i] + 0.004)
+                X[i, :, :, 0] = NormalizeData(tmp)
+                X[i, :, :, 1] = self.k[i]/2.
+                X[i, :, :, 2] = self.g[i]/2.
+                X[i, :, :, 3] = self.s[i]
+            if self.n_channels == 2:
+                tmp = maps[0::self.res_scale, 0::self.res_scale].reshape((self.dim[0], self.dim[1], 2))
+                tmp = np.log10(tmp * self.conv_const[i] + 0.004)
+                X[i, :, :, :] = NormalizeData(tmp)
+            else:
+                tmp = maps[0::self.res_scale, 0::self.res_scale].reshape((self.dim[0], self.dim[1], 1))
+                tmp = np.log10(tmp * self.conv_const[i] + 0.004)
+                X[i, :, :, :] = NormalizeData(tmp)
+
 
             # except ValueError:
             #     pass
-
-        return X, X
+        if self.n_channels == 4 or self.n_channels == 2:
+            return X, X[:, :, :, 0]
+        else:
+            return X, X
 
     def get_generator_indexes(self):
         return self.indexes
 
-    def map_reader(self, list_IDs_temp):
+    def map_reader(self, list_IDs_temp, output='map'):
+        '''
+        This function is written to help see if the pipeline for reading the maps is working fine.
+        For a given set of IDs, It reads the map, and takes log10, and normalized them to be between -3 and 6.
+        It also does the convolution with source profile and returns that if the option is chosen.
+
+        :param list_IDs_temp: A list of IDs of maps that you want to read
+        :param output: What the output should be. The options are:
+                "map": If you want the maps in units of magnification
+                "map_norm": If you want the maps normalized.
+        :return:
+        '''
         X = np.empty((len(list_IDs_temp), self.dim[0], self.dim[1], self.n_channels))
         meta = pd.read_csv(self.conv_const_path)
         conv_const = meta.loc[meta['ID'].isin(list_IDs_temp)]['const'].values
-        macro_mag = meta.loc[meta['ID'].isin(list_IDs_temp)]['const'].values
+        # macro_mag = meta.loc[meta['ID'].isin(list_IDs_temp)]['const'].values
 
         # Generate data
         for i, ID in enumerate(list_IDs_temp):
@@ -113,14 +352,35 @@ class DataGenerator(keras.utils.Sequence):
             f = open(self.path + str(ID) + "/map.bin", "rb")
             map_tmp = np.fromfile(f, 'i', -1, "")
             maps = (np.reshape(map_tmp, (-1, 10000)))
-            tmp = maps[0::self.res_scale, 0::self.res_scale].reshape((self.dim[0], self.dim[1], self.n_channels))
-            if np.mean(tmp) == 0:
-                print('Alert: Map values zero!\n')
-            tmp = np.log10(tmp * conv_const[i] + 0.004)
+            tmp = maps[0::self.res_scale, 0::self.res_scale]
+            tmp = tmp * conv_const[i]
 
-            X[i, ] = NormalizeData(tmp)
-            # except ValueError:
-            #     pass
+            if output == 'map':
+                if self.n_channels == 4:
+                    X[i, :, :, 0] = tmp
+                    X[i, :, :, 1] = self.k[i]/2.
+                    X[i, :, :, 2] = self.g[i]/2.
+                    X[i, :, :, 3] = self.s[i]
+                if self.n_channels == 2:
+                    X[i, :, :, :] = tmp.reshape((self.dim[0], self.dim[1], 2))
+                else:
+                    X[i, :, :, :] = NormalizeData(tmp).reshape((self.dim[0], self.dim[1], 1))
+
+            elif output == 'map_norm':
+
+                if self.n_channels == 4:
+                    tmp = np.log10(tmp + 0.004)
+                    X[i, :, :, 0] = NormalizeData(tmp)
+                    X[i, :, :, 1] = self.k[i]/2.
+                    X[i, :, :, 2] = self.g[i]/2.
+                    X[i, :, :, 3] = self.s[i]
+                if self.n_channels == 2:
+                    tmp = tmp.reshape((self.dim[0], self.dim[1], 2))
+                    tmp = np.log10(tmp + 0.004)
+                    X[i, :, :, :] = NormalizeData(tmp)
+                else:
+                    tmp = np.log10(tmp + 0.004)
+                    X[i, :, :, :] = NormalizeData(tmp).reshape((self.dim[0], self.dim[1], 1))
 
         return X
 
@@ -208,8 +468,8 @@ def model_design_3l(input_side):
     return autoencoder_model
 
 
-def model_design_Unet(input_side):
-    input_img = keras.Input(shape=(input_side, input_side, 1))
+def model_design_Unet(input_side, n_channels=1):
+    input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
     x = layers.Conv2D(32, (3, 3), activation='relu', strides=1, padding="same")(input_img)
     x = layers.Conv2D(32, (3, 3), activation='relu', strides=1, padding="same")(x)
@@ -295,6 +555,81 @@ def model_design_Unet_resnet(input_side, n_channels = 1, af = 'relu'):
     encoded = layers.Conv2D(1, (4, 4), activation= af, strides=1, padding="same")(bl4_pl)
 
     bl5_conv1 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(encoded)
+    bl5_conv2 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_conv1)
+
+    bl5_conv3 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(encoded)
+    bl5_add = Add()([bl5_conv3, bl5_conv2])
+    bl5_pl = layers.UpSampling2D((5, 5))(bl5_add)
+
+    bl6_conv1 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_pl)
+    bl6_conv2 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl6_conv1)
+
+    bl6_conv3 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_pl)
+    bl6_add = Add()([bl6_conv3, bl6_conv2])
+    bl6_pl = layers.UpSampling2D((2, 2))(bl6_add)
+
+    bl7_conv1 = layers.Conv2DTranspose(64, (3, 3), activation= af, strides=1, padding="same")(bl6_pl)
+    bl7_conv2 = layers.Conv2DTranspose(64, (3, 3), activation= af, strides=1, padding="same")(bl7_conv1)
+
+    bl7_conv3 = layers.Conv2DTranspose(64, (3, 3), activation= af, strides=1, padding="same")(bl6_pl)
+    bl7_add = Add()([bl7_conv3, bl7_conv2])
+    bl7_pl = layers.UpSampling2D((2, 2))(bl7_add)
+
+    bl8_conv1 = layers.Conv2DTranspose(32, (3, 3), activation= af, strides=1, padding="same")(bl7_pl)
+    bl8_conv2 = layers.Conv2DTranspose(32, (3, 3), activation= af, strides=1, padding="same")(bl8_conv1)
+
+    bl8_conv3 = layers.Conv2DTranspose(32, (3, 3), activation= af, strides=1, padding="same")(bl7_pl)
+    bl8_add = Add()([bl8_conv3, bl8_conv2])
+    bl8_pl = layers.UpSampling2D((2, 2))(bl8_add)
+
+    decoded = layers.Conv2DTranspose(1, (1, 1), activation='sigmoid', padding="same")(bl8_pl)
+
+    autoencoder_model = keras.Model(input_img, decoded)
+
+    return autoencoder_model
+
+def variational_Unet_resnet(input_side, n_channels = 1, af = 'relu'):
+    input_img = keras.Input(shape=(input_side, input_side, n_channels))
+
+    bl1_conv1 = layers.Conv2D(32, (3, 3), activation= af, strides=1, padding="same")(input_img)
+    bl1_conv2 = layers.Conv2D(32, (3, 3), activation= af, strides=1, padding="same")(bl1_conv1)
+
+    bl1_conv3 = layers.Conv2D(32, (3, 3), activation= af, strides=1, padding="same")(input_img)
+    bl1_add = Add()([bl1_conv3, bl1_conv2])
+    bl1_pl = layers.MaxPooling2D((2, 2))(bl1_add)
+
+    bl2_conv1 = layers.Conv2D(64, (3, 3), activation= af, strides=1, padding="same")(bl1_pl)
+    bl2_conv2 = layers.Conv2D(64, (3, 3), activation= af, strides=1, padding="same")(bl2_conv1)
+
+    bl2_conv3 = layers.Conv2D(64, (3, 3), activation= af, strides=1, padding="same")(bl1_pl)
+    bl2_add = Add()([bl2_conv3, bl2_conv2])
+    bl2_pl = layers.MaxPooling2D((2, 2))(bl2_add)
+
+    bl3_conv1 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl2_pl)
+    bl3_conv2 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl3_conv1)
+
+    bl3_conv3 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl2_pl)
+    bl3_add = Add()([bl3_conv3, bl3_conv2])
+    bl3_pl = layers.MaxPooling2D((2, 2))(bl3_add)
+
+    bl4_conv1 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl3_pl)
+    bl4_conv2 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl4_conv1)
+
+    bl4_conv3 = layers.Conv2D(128, (3, 3), activation= af, strides=1, padding="same")(bl3_pl)
+    bl4_add = Add()([bl4_conv3, bl4_conv2])
+    bl4_pl = layers.MaxPooling2D((5, 5))(bl4_add)
+
+    encoded = layers.Conv2D(1, (4, 4), activation= af, strides=1, padding="same")(bl4_pl)
+    x = layers.Flatten()(encoded)
+    x = layers.Dense(625, activation="relu")(x)
+    z_mean = layers.Dense(625, name="z_mean")(x)
+    z_log_var = layers.Dense(625, name="z_log_var")(x)
+    z = Sampling()([z_mean, z_log_var])
+    # encoder = keras.Model(encoder_inputs, [z_mean, z_log_var, z], name="encoder")
+    x = layers.Dense(625, activation="relu")(z)
+    x = layers.Reshape((25, 25, 1))(x)
+
+    bl5_conv1 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(x)
     bl5_conv2 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(bl5_conv1)
 
     bl5_conv3 = layers.Conv2DTranspose(128, (3, 3), activation= af, strides=1, padding="same")(encoded)
@@ -684,6 +1019,16 @@ def model_design_Unet_NF(input_side, z_size):
     autoencoder_model = keras.Model(input_img, decoded)
 
     return autoencoder_model
+
+class Sampling(layers.Layer):
+    """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
+
+    def call(self, inputs):
+        z_mean, z_log_var = inputs
+        batch = tf.shape(z_mean)[0]
+        dim = tf.shape(z_mean)[1]
+        epsilon = tf.random.normal(shape=(batch, dim))
+        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 def vae_NF(input_side, learning_rate = 1E-4, flow_label=None, z_size=625, n_flows=4,
            loss=keras.losses.BinaryCrossentropy(from_logits=True)):

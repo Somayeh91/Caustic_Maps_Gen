@@ -10,7 +10,8 @@ import json
 import math
 from my_classes import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
         compareinout2D, fig_loss, read_saved_model, model_design_3l, model_design_Unet, tweedie_loss_func, \
-        basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, model_design_Unet_resnet, model_design_Unet_resnet2
+        basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, model_design_Unet_resnet, model_design_Unet_resnet2,\
+        lc_loss_func
 # date = time.strftime("%y-%m-%d-%H-%M-%S")
 
 
@@ -40,6 +41,7 @@ def parse_options():
                         help='Specify the directory where the maps are stored on the supercomputer.')
     parser.add_argument('-batch_size', action='store', default=8, help='Batch size for the autoencoder.')
     parser.add_argument('-n_epochs', action='store', default=50, help='Number of epochs.')
+    parser.add_argument('-n_channels', action='store', default=1, help='Number of channels.')
     parser.add_argument('-lr_rate', action='store', default=0.00001, help='Learning rate.')
     parser.add_argument('-res_scale', action='store', default=10,
                         help='With what scale should the original maps resoultion be reduced.')
@@ -53,7 +55,7 @@ def parse_options():
                         default='./../data/maps_selected_kappa_equal_gamma.csv',
                         help='Specify the directory where the conversion parameters.')
     parser.add_argument('-test_set_size', action='store',
-                        default=100,
+                        default=10,
                         help='Size of the test set.'),
     parser.add_argument('-sample_size', action='store',
                         default=3828,
@@ -74,6 +76,10 @@ def parse_options():
     parser.add_argument('-loss_function', action='store',
                         default='binary_crossentropy',
                         help='What is the loss function?'
+                        )
+    parser.add_argument('-lc_loss_function_metric', action='store',
+                        default='mse',
+                        help='What is the metric to calculate statistics in the lc loss function?'
                         )
     parser.add_argument('-optimizer', action='store',
                         default='adam',
@@ -100,6 +106,9 @@ def parse_options():
     parser.add_argument('-early_callback_type', action='store',
                         default=1,
                         help='What type of early callback you want?')
+    parser.add_argument('-add_params', action='store',
+                        default=False,
+                        help='Do you want to add the 3 map params as new channels?')
 
     # Parses through the arguments and saves them within the keyword args
     arguments = parser.parse_args()
@@ -120,6 +129,7 @@ n_test_set = int(args.test_set_size)
 test_set_selection = args.test_set_selection
 early_callback = args.early_callback
 early_callback_type = args.early_callback_type
+add_params = args.add_params
 
 date = args.date
 os.system("mkdir ./../results/" + str(date))
@@ -129,6 +139,7 @@ saved_model_path = args.saved_model_path
 lr_rate = float(args.lr_rate)
 n_epochs = int(args.n_epochs)
 dim = int(args.dim)
+lc_loss_function_metric = args.lc_loss_function_metric
 sample_size = int(args.sample_size)
 output_dir = './../results/' + args.date + '/'
 
@@ -147,7 +158,8 @@ model_designs = {'2l': model_design_2l,
                  'Unet_resnet2': model_design_Unet_resnet2}
 loss_functions = {'binary_crossentropy': keras.losses.BinaryCrossentropy(from_logits=True),
                   'poisson': keras.losses.Poisson(),
-                  'tweedie': tweedie_loss_func(0.5)}
+                  'tweedie': tweedie_loss_func(0.5),
+                  'lc_loss': lc_loss_func(lc_loss_function_metric)}
 optimizers = {'adam': keras.optimizers.Adam,
               'sgd': keras.optimizers.SGD,
               'adamax': keras.optimizers.Adamax,
@@ -156,7 +168,7 @@ optimizers = {'adam': keras.optimizers.Adam,
 
 params = {'dim': dim,
           'batch_size': int(args.batch_size),
-          'n_channels': 1,
+          'n_channels': int(args.n_channels),
           'res_scale': int(args.res_scale),
           'path': args.directory,
           'shuffle': True,
@@ -193,13 +205,34 @@ if saved_model:
     params_saved = {key: params_saved[key] for key in params.keys()}
     training_generator = DataGenerator(partition['train'], **params_saved)
     validation_generator = DataGenerator(partition['validation'], **params_saved)
-    test_generator = DataGenerator(partition['test'], **params_saved)
-    test_set_index = random.sample(list(partition['test']), n_test_set)
-    generator_indexes = test_generator.get_generator_indexes()
+
+
+    if test_set_selection == 'random':
+        test_set_index = np.asarray(random.sample(list(partition['test']), n_test_set))
+    elif test_set_selection == 'all_test':
+        test_set_index = partition['test']
+    elif test_set_selection == 'all_train':
+        test_set_index = partition['train']
+    elif test_set_selection == 'all_data':
+        test_set_index = np.concatenate((partition['train'], partition['validation'], partition['test']))
+        n_test_set = math.trunc(len(test_set_index) / params['batch_size']) * params['batch_size']
+    elif test_set_selection == 'sorted':
+        test_set_index = np.sort(partition['test'])[:n_test_set]
+    else:
+        test_set_index = np.loadtxt(test_set_selection)
+
+    test_generator = DataGenerator(test_set_index, **params_saved)
+    # test_generator = DataGenerator(partition['test'], **params_saved)
+    # test_set_index = random.sample(list(partition['test']), n_test_set)
+    # generator_indexes = test_generator.get_generator_indexes()
 
     print('Loading a trained model...')
 
-    autoencoder = read_saved_model(saved_model_path)
+    if loss_function_key == 'lc_loss':
+        autoencoder = keras.models.load_model(saved_model_path, custom_objects= \
+            {'lc_loglikelihood': lc_loss_func(metric=lc_loss_function_metric)})
+    else:
+        autoencoder = keras.models.load_model(saved_model_path, custom_objects={'loss': loss_functions[loss_function_key]})
 
 else:
     partition['train'] = ls_maps[indx1]
@@ -240,6 +273,7 @@ else:
     params['saved_model'] = saved_model
     params['sample_size'] = sample_size
     params['loss_function'] = loss_function_key
+    params['loss_function_metric'] = lc_loss_function_metric
     params['optimizer'] = optimizer_key
     params['model_design'] = model_design_key
 
@@ -258,7 +292,7 @@ else:
                                                       z_size=z_size, n_flows=n_flows,
                                                       loss=loss_functions[loss_function_key])
     else:
-        autoencoder = model_designs[model_design_key](int(dim / params['res_scale']))
+        autoencoder = model_designs[model_design_key](int(dim / params['res_scale']), params['n_channels'])
     display_model(autoencoder)
     model_compile(autoencoder, lr_rate, loss=loss_functions[loss_function_key],
                   optimizer_=optimizers[optimizer_key])
@@ -282,11 +316,8 @@ fig = fig_loss(autoencoder_history.history)
 plt.savefig(output_dir + 'loss.png')
 
 print('Making predictions on the test set...')
-if convolve:
-    test_output_option = 'map_conv_norm'
-else:
-    test_output_option = 'map'
-x_test = test_generator.map_reader(test_set_index, output=test_output_option)
+
+x_test = test_generator.map_reader(test_set_index, output='map_norm')
 generator_indexes = test_generator.get_generator_indexes()
 x_test = x_test[generator_indexes]
 test_set_index = test_set_index[generator_indexes]
@@ -294,7 +325,7 @@ output_autoencoder = autoencoder.predict(test_generator)
 
 print('Plotting the input/output compare figure...')
 for i in tqdm(range(n_test_set)):
-    fig = compareinout2D(output_autoencoder[i], np.asarray(x_test)[i], int(dim / params['res_scale']))
+    fig = compareinout2D(output_autoencoder[i], np.asarray(x_test)[i, :, :, 0], int(dim / params['res_scale']))
     fig.savefig(output_dir + 'compare_' + str(test_set_index[i]) + '.png', bbox_inches='tight')
     print('True map (min,max,mean,median): ',
           np.min(np.asarray(x_test)[i]),

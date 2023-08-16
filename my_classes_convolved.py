@@ -14,7 +14,9 @@ import tensorflow as tf
 from keras.models import Model
 from keras.layers import Input, concatenate, Conv2D, MaxPooling2D, Conv2DTranspose, UpSampling2D, Add
 import sys
+from keras import backend as K
 
+from sf_fft import sf_fft
 from convolver import *
 
 sys.path += ['..']
@@ -38,20 +40,220 @@ def tweedie_loss_func(p):
         #     sess.run(init_op)  # execute init_op
         #     # print the random values that we sample
         #     print(sess.run(y_hat))
-        tf.print("y_hat:", y_hat, output_stream=sys.stdout)
+        # tf.print("y_hat:", y_hat, output_stream=sys.stdout)
         loss = - y * tf.pow(y_hat, 1 - p) / (1 - p) + \
                tf.pow(y_hat, 2 - p) / (2 - p)
         return tf.reduce_mean(loss)
 
     return tweedie_loglikelihood
 
+def lc_maker_mse(map, distance=15, n_samp=100):
+    mapp, map_hat = map[0], map[1]
+
+    batch_size = mapp.shape[0]
+
+    nxpix = 1000
+    nypix = 1000
+    factor = 1
+    tot_r_e = 25
+    xr = [-(tot_r_e / factor), (tot_r_e / factor)]
+    yr = [-(tot_r_e / factor), (tot_r_e / factor)]
+
+    x0 = xr[0]
+    dx = xr[1] - x0  # map units in R_E
+
+    mappix = 1000 / dx
+    nsamp = n_samp
+    distance = distance  # in maps units
+    dt = (22 * 365) / 1.5  # from Kochanek (2004) for Q2237+0305: The quasar takes 22 years to go through 1.5 R_Ein
+    tmax = distance * dt
+
+    t = np.linspace(0, tmax, nsamp, dtype='int')
+    metric = []
+
+    for n in range(batch_size):
+        c = 0
+        # if origin==None:
+        mmap = mapp[n]
+        mmap_hat = map_hat[n]
+        origin = [i // 2 for i in mmap.shape]
+
+        for ang in [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]:
+            # -------- determine the x and y pixel values
+            rad = ang * np.pi / 180.0
+            crad = np.cos(rad)
+            srad = np.sin(rad)
+            pixsz = dx / float(nxpix)  # size of one pixel in R_E
+            drpix = distance / dx * float(nxpix) / float(nsamp)  # step's size in pixels
+            ix = [i * drpix * crad + origin[0] for i in range(nsamp)]
+            iy = [i * drpix * srad + origin[1] for i in range(nsamp)]
+
+            # -------- interpolate onto light curve pixels
+            #          (using interp2d!!!)
+            x, y = np.arange(float(nxpix)), np.arange(float(nypix))
+            mapint = interpolate.interp2d(x, y, mmap, kind='cubic')
+            mapint2 = interpolate.interp2d(x, y, mmap_hat, kind='cubic')
+
+            lc = np.array([mapint(i, j)[0] for i, j in zip(*[iy, ix])])
+            lc2 = np.array([mapint2(i, j)[0] for i, j in zip(*[iy, ix])])
+
+            c += np.sum((lc - lc2) ** 2)
+        metric.append(c / 12.)
+    return np.ndarray.astype(np.asarray(metric), np.float32)
+
+
+@tf.function(input_signature=[tf.TensorSpec(None, tf.float32)])
+def tf_lc_function_mse(input):
+    y = tf.numpy_function(lc_maker_mse, [input], tf.float32)
+    return y
+
+def lc_maker_sf_median(map, distance=15, n_samp=100):
+    mapp, map_hat = map[0], map[1]
+
+    batch_size = mapp.shape[0]
+
+    nxpix = 1000
+    nypix = 1000
+    factor = 1
+    tot_r_e = 25
+    xr = [-(tot_r_e / factor), (tot_r_e / factor)]
+    yr = [-(tot_r_e / factor), (tot_r_e / factor)]
+
+    x0 = xr[0]
+    dx = xr[1] - x0  # map units in R_E
+
+    mappix = 1000 / dx
+    nsamp = n_samp
+    distance = distance  # in maps units
+    dt = (22 * 365) / 1.5  # from Kochanek (2004) for Q2237+0305: The quasar takes 22 years to go through 1.5 R_Ein
+    tmax = distance * dt
+
+    t = np.linspace(0, tmax, nsamp, dtype='int')
+    metric = []
+
+    for n in range(batch_size):
+        c = 0
+        # if origin==None:
+        mmap = mapp[n]
+        mmap_hat = map_hat[n]
+        origin = [i // 2 for i in mmap.shape]
+
+        for ang in [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]:
+            # -------- determine the x and y pixel values
+            rad = ang * np.pi / 180.0
+            crad = np.cos(rad)
+            srad = np.sin(rad)
+            pixsz = dx / float(nxpix)  # size of one pixel in R_E
+            drpix = distance / dx * float(nxpix) / float(nsamp)  # step's size in pixels
+            ix = [i * drpix * crad + origin[0] for i in range(nsamp)]
+            iy = [i * drpix * srad + origin[1] for i in range(nsamp)]
+
+            # -------- interpolate onto light curve pixels
+            #          (using interp2d!!!)
+            x, y = np.arange(float(nxpix)), np.arange(float(nypix))
+            mapint = interpolate.interp2d(x, y, mmap, kind='cubic')
+            mapint2 = interpolate.interp2d(x, y, mmap_hat, kind='cubic')
+
+            lc = np.array([mapint(i, j)[0] for i, j in zip(*[iy, ix])])
+            lc2 = np.array([mapint2(i, j)[0] for i, j in zip(*[iy, ix])])
+
+            c += np.median(np.abs(sf_fft(lc) - sf_fft(lc2)))
+            c += np.median(np.abs(sf_fft(mmap) - sf_fft(mmap_hat)))
+
+        metric.append(c / 12.)
+    return np.ndarray.astype(np.asarray(metric), np.float32)
+
+
+@tf.function(input_signature=[tf.TensorSpec(None, tf.float32)])
+def tf_lc_function_sf_median(input):
+    y = tf.numpy_function(lc_maker_sf_median, [input], tf.float32)
+    return y
+
+def lc_maker_sf_max(map, distance=15, n_samp=100):
+    mapp, map_hat = map[0], map[1]
+
+    batch_size = mapp.shape[0]
+
+    nxpix = 1000
+    nypix = 1000
+    factor = 1
+    tot_r_e = 25
+    xr = [-(tot_r_e / factor), (tot_r_e / factor)]
+    yr = [-(tot_r_e / factor), (tot_r_e / factor)]
+
+    x0 = xr[0]
+    dx = xr[1] - x0  # map units in R_E
+
+    mappix = 1000 / dx
+    nsamp = n_samp
+    distance = distance  # in maps units
+    dt = (22 * 365) / 1.5  # from Kochanek (2004) for Q2237+0305: The quasar takes 22 years to go through 1.5 R_Ein
+    tmax = distance * dt
+
+    t = np.linspace(0, tmax, nsamp, dtype='int')
+    metric = []
+
+    for n in range(batch_size):
+        c = 0
+        # if origin==None:
+        mmap = mapp[n]
+        mmap_hat = map_hat[n]
+        origin = [i // 2 for i in mmap.shape]
+
+        for ang in [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]:
+            # -------- determine the x and y pixel values
+            rad = ang * np.pi / 180.0
+            crad = np.cos(rad)
+            srad = np.sin(rad)
+            pixsz = dx / float(nxpix)  # size of one pixel in R_E
+            drpix = distance / dx * float(nxpix) / float(nsamp)  # step's size in pixels
+            ix = [i * drpix * crad + origin[0] for i in range(nsamp)]
+            iy = [i * drpix * srad + origin[1] for i in range(nsamp)]
+
+            # -------- interpolate onto light curve pixels
+            #          (using interp2d!!!)
+            x, y = np.arange(float(nxpix)), np.arange(float(nypix))
+            mapint = interpolate.interp2d(x, y, mmap, kind='cubic')
+            mapint2 = interpolate.interp2d(x, y, mmap_hat, kind='cubic')
+
+            lc = np.array([mapint(i, j)[0] for i, j in zip(*[iy, ix])])
+            lc2 = np.array([mapint2(i, j)[0] for i, j in zip(*[iy, ix])])
+
+            c += np.max(np.abs(sf_fft(lc) - sf_fft(lc2)))
+            c += np.max(np.abs(sf_fft(mmap) - sf_fft(mmap_hat)))
+
+        metric.append(c / 12.)
+    return np.ndarray.astype(np.asarray(metric), np.float32)
+
+
+@tf.function(input_signature=[tf.TensorSpec(None, tf.float32)])
+def tf_lc_function_sf_max(input):
+    y = tf.numpy_function(lc_maker_sf_max, [input], tf.float32)
+    return y
+
+def lc_loss_func(metric = 'mse'):
+    def lc_loglikelihood(y, y_hat):
+        batch_size = tf.shape(y)[0]
+        data = tf.concat([tf.reshape(y, [1, batch_size, 1000, 1000]), tf.reshape(y_hat, [1, batch_size, 1000, 1000])],
+                         0)
+        if metric == 'mse':
+            c = K.sum(tf_lc_function_mse(data))
+        elif metric == 'sf_median':
+            c = K.sum(tf_lc_function_sf_median(data))
+        elif metric == 'sf_max':
+            c = K.sum(tf_lc_function_sf_max(data))
+        loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)(y, y_hat) + c
+
+        return tf.reduce_mean(loss)
+
+    return lc_loglikelihood
 
 class DataGenerator(keras.utils.Sequence):
     """Generates data for Keras"""
 
     def __init__(self, list_IDs, batch_size=8, dim=10000, n_channels=1,
                  res_scale=10, path='./../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/',
-                 shuffle=True, conv_const='./../data/all_maps_meta.csv',
+                 shuffle=True, conv_const='./../data/all_maps_meta_kgs.csv',
                  convolve=False, rsrc=1):
         """Initialization"""
 
@@ -66,8 +268,8 @@ class DataGenerator(keras.utils.Sequence):
         self.on_epoch_end()
         self.conv_const_path = conv_const
         self.convolve = convolve
-        if self.convolve:
-            self.cv = convolver(rsrc=rsrc)
+        # if self.convolve:
+        self.cv = convolver(rsrc=rsrc)
 
     def __len__(self):
         """Denotes the number of batches per epoch"""
@@ -97,8 +299,8 @@ class DataGenerator(keras.utils.Sequence):
         """Generates data containing batch_size samples"""  # X : (n_samples, *dim, n_channels)
         # Initialization
         X = np.empty((self.batch_size, self.dim[0], self.dim[1], self.n_channels))
-        if self.convolve:
-            Y = np.empty((self.batch_size, self.dim[0], self.dim[1], self.n_channels))
+        # if self.convolve:
+        Y = np.empty((self.batch_size, self.dim[0], self.dim[1], self.n_channels))
 
         # Generate data
         for i, ID in enumerate(self.list_IDs_temp):
@@ -111,19 +313,18 @@ class DataGenerator(keras.utils.Sequence):
             # print(np.mean(tmp))
             tmp = tmp * self.conv_const[i]
             # print(np.mean(tmp))
-            if self.convolve:
-                Y[i, :, :, int(self.n_channels - 1)] = self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
-            # print(self.convolve)
+            # if self.convolve:
+            tmp[tmp == 0] = np.min(tmp[tmp > 0])
+            conv_tmp = self.convolve_maps(tmp.reshape((self.dim[0], self.dim[1])))
+            Y[i, :, :, 0] = conv_tmp
+            # print('Y: nans', 'infs', np.sum(np.isnan(conv_tmp)), np.sum(np.isinf(conv_tmp)))
+            # print('Y: min', 'max', np.min(conv_tmp), np.max(conv_tmp))
             tmp = np.log10(tmp + 0.004)
             X[i,] = NormalizeData(tmp)
-            # print(np.mean(NormalizeData(tmp)))
+            # print('X: nans', 'infs', np.sum(np.isnan(NormalizeData(tmp))), np.sum(np.isinf(NormalizeData(tmp))))
+            # print('X: min', 'max', np.min(NormalizeData(tmp)), np.max(NormalizeData(tmp)))
 
-            # except ValueError:
-            #     pass
-        if self.convolve:
-            return X, Y
-        else:
-            return X, X
+        return X, Y
 
     def convolve_maps(self, mag):
         self.cv.conv_map(mag)
@@ -161,6 +362,7 @@ class DataGenerator(keras.utils.Sequence):
             maps = (np.reshape(map_tmp, (-1, 10000)))
             tmp = maps[0::self.res_scale, 0::self.res_scale].reshape((self.dim[0], self.dim[1], self.n_channels))
             tmp = tmp * conv_const[i]
+            tmp[tmp == 0] = np.min(tmp[tmp > 0])
             if output == 'map':
                 X[i, :, :, 0] = tmp.reshape((self.dim[0], self.dim[1]))
             elif output == 'map_norm':
