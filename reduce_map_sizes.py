@@ -37,8 +37,8 @@ args = parse_options()
 
 
 ls_maps = np.loadtxt(args.list_IDs_directory, usecols=(0,), dtype=int)
-batch_size = args.batch_size
-n_files = math.trunc(len(ls_maps)/batch_size)
+batch_size = int(args.batch_size)
+n_files = math.trunc(len(ls_maps)/float(batch_size))
 random.seed(10)
 shuffler = np.random.permutation(len(ls_maps))
 ls_maps = ls_maps[shuffler]
@@ -62,5 +62,5 @@ for i in tqdm(range(n_files)):
         print(np.median(np.asarray(batch_map[ID]).flatten()))
 
 
-    f = open(output_dir + 'maps_batch'+str(i)+'.pkl', 'wb')
+    f = open(output_dir + 'all_maps_batch'+str(i)+'.pkl', 'wb')
     pkl.dump(batch_map, f)

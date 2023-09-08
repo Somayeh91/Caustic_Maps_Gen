@@ -79,7 +79,8 @@ module load tqdm/4.64.0
 module load scipy/1.8.1-scipy-bundle-2022.05 
 . ~/maps/bin/activate
 python {python_file} -date={date} {arguments}
-""".format(partition=partition, python_file=python_file, date=date, arguments=arguments, mem=mem, n_gpu=n_gpu, n_hrs=n_hrs, jobname=jobname, outfilename=outfilename,
+""".format(partition=partition, python_file=python_file, date=date, arguments=arguments, mem=mem,
+           n_gpu=n_gpu, n_hrs=n_hrs, jobname=jobname, outfilename=outfilename,
            email=email, cwd=cwd, shell_name=shell_name, conda_env=conda_env)
 
 # write the slurm script to file

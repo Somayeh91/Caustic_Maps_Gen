@@ -8,11 +8,12 @@ from tqdm import tqdm
 import pickle as pkl
 import json
 import math
-from my_classes import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
-        compareinout2D, fig_loss, read_saved_model, model_design_3l, model_design_Unet, tweedie_loss_func, \
-        basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, model_design_Unet_resnet, model_design_Unet_resnet2,\
-        lc_loss_func
-# date = time.strftime("%y-%m-%d-%H-%M-%S")
+from my_classes import  DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
+                        compareinout2D, fig_loss, read_saved_model, model_design_3l, model_design_Unet, tweedie_loss_func, \
+                        basic_unet, model_design_Unet2, model_design_Unet3, model_design_Unet_NF, model_design_Unet_resnet,\
+                        model_design_Unet_resnet2, lc_loss_func, Unet_sobel_edges1, Unet_resnet_3param, VAE,\
+                        Unet_sobel_edges2, model_compile_change_lc_loss
+
 
 
 import tensorflow as tf
@@ -109,18 +110,25 @@ def parse_options():
     parser.add_argument('-add_params', action='store',
                         default=False,
                         help='Do you want to add the 3 map params as new channels?')
-
+    parser.add_argument('-model_input_format', action='store',
+                        default='xx',
+                        help='Does the model get x as data and y as targets? xy, other options are xx, x')
+    parser.add_argument('-ngpu', action='store',
+                        default=1,
+                        help='Number of GPUs you are selecting.')
+    parser.add_argument('-training_plans', action='store',
+                        default='simple',
+                        help='If you want to change the optimizer during the training.')
     # Parses through the arguments and saves them within the keyword args
     arguments = parser.parse_args()
     return arguments
-
-
 
 
 args = parse_options()
 model_design_key = args.model_design
 loss_function_key = args.loss_function
 optimizer_key = args.optimizer
+training_plan = args.training_plans
 
 flow_label = args.flow_label
 n_flows = int(args.n_flows)
@@ -130,6 +138,8 @@ test_set_selection = args.test_set_selection
 early_callback = args.early_callback
 early_callback_type = args.early_callback_type
 add_params = args.add_params
+model_input_format = args.model_input_format
+ngpu = int(args.ngpu)
 
 date = args.date
 os.system("mkdir ./../results/" + str(date))
@@ -153,9 +163,13 @@ model_designs = {'2l': model_design_2l,
                  'Unet2': model_design_Unet2,
                  'Unet3': model_design_Unet3,
                  'basic_unet': basic_unet,
-                 'Unet_NF': vae_NF,
+                 'Unet_NF': model_design_Unet_NF,
+                 'Unet_sobel1': Unet_sobel_edges1,
+                 'Unet_sobel2': Unet_sobel_edges2,
                  'Unet_resnet': model_design_Unet_resnet,
-                 'Unet_resnet2': model_design_Unet_resnet2}
+                 'Unet_resnet2': model_design_Unet_resnet2,
+                 'VAE_Unet_Resnet': VAE,
+                 'Unet_resnet_3param': Unet_resnet_3param}
 loss_functions = {'binary_crossentropy': keras.losses.BinaryCrossentropy(from_logits=True),
                   'poisson': keras.losses.Poisson(),
                   'tweedie': tweedie_loss_func(0.5),
@@ -172,7 +186,8 @@ params = {'dim': dim,
           'res_scale': int(args.res_scale),
           'path': args.directory,
           'shuffle': True,
-          'conv_const': args.conversion_file_directory}
+          'conv_const': args.conversion_file_directory,
+          'output_format': model_input_format}
 keys_old = params.keys()
 
 # Datasets
@@ -196,16 +211,23 @@ if saved_model:
     partition = pkl.load(file_partition)
 
     file_params = open(saved_model_path.split('model')[0] + 'params.pkl', 'rb')
-    params_saved = pkl.load(file_params)
+    params_saved_ = pkl.load(file_params)
+
+
+    # Generators
+    params_saved = {}
+    # params_saved = {key: params_saved[key] for key in params.keys()}
+    for key in params.keys():
+        if key in list(params_saved.keys()):
+            params_saved[key] = params_saved_[key]
+        else:
+            params_saved[key] = params[key]
+
     print('Model params are: ')
     print(json.dumps(params_saved, indent=len(params_saved.keys())))
 
-    # Generators
-
-    params_saved = {key: params_saved[key] for key in params.keys()}
     training_generator = DataGenerator(partition['train'], **params_saved)
     validation_generator = DataGenerator(partition['validation'], **params_saved)
-
 
     if test_set_selection == 'random':
         test_set_index = np.asarray(random.sample(list(partition['test']), n_test_set))
@@ -232,8 +254,8 @@ if saved_model:
         autoencoder = keras.models.load_model(saved_model_path, custom_objects= \
             {'lc_loglikelihood': lc_loss_func(metric=lc_loss_function_metric)})
     else:
-        autoencoder = keras.models.load_model(saved_model_path, custom_objects={'loss': loss_functions[loss_function_key]})
-
+        autoencoder = keras.models.load_model(saved_model_path,
+                                              custom_objects={'loss': loss_functions[loss_function_key]})
 else:
     partition['train'] = ls_maps[indx1]
     partition['validation'] = ls_maps[indx2]
@@ -284,25 +306,53 @@ else:
     pkl.dump(params, file)
 
     # Design the model
-    print('Desigining the network...')
+
     # with mirrored_strategy.scope():
     if model_design_key == 'Unet_NF':
         autoencoder = model_designs[model_design_key](int(dim / params['res_scale']),
                                                       learning_rate=lr_rate, flow_label=flow_label,
                                                       z_size=z_size, n_flows=n_flows,
                                                       loss=loss_functions[loss_function_key])
+        print('Desigining the network...')
+
+    elif model_design_key.startswith('VAE'):
+        if model_design_key == 'VAE_Unet_Resnet':
+            encoder = vae_encoder(z_size, int(dim / params['res_scale']), params['n_channels'], 'relu')
+        else:
+            encoder = vae_encoder_3params(z_size, int(dim / params['res_scale']), 3, params['n_channels'], 'relu')
+        autoencoder = VAE(encoder,
+                          vae_decoder(z_size, 'relu'))
+        print('Desigining the network...')
+
+    elif model_design_key == 'Unet_resnet_3param':
+        autoencoder = Unet_resnet_3param(int(dim / params['res_scale']), 3, params['n_channels'], 'relu')
+        print('Desigining the network...')
+
     else:
         autoencoder = model_designs[model_design_key](int(dim / params['res_scale']), params['n_channels'])
-    display_model(autoencoder)
-    model_compile(autoencoder, lr_rate, loss=loss_functions[loss_function_key],
-                  optimizer_=optimizers[optimizer_key])
+        print('Desigining the network...')
 
-# Train the model
-autoencoder_history = model_fit2(autoencoder, n_epochs,
-                                 training_generator, validation_generator,
-                                 filepath = output_dir,
-                                 early_callback_ = early_callback,
-                                 early_callback_type = early_callback_type)
+    display_model(autoencoder)
+
+
+if training_plan == 'simple':
+    model_compile(autoencoder, lr_rate, model_design_key, loss=loss_functions[loss_function_key],
+                  optimizer_=optimizers[optimizer_key])
+    # Train the model
+    autoencoder_history = model_fit2(autoencoder, n_epochs,
+                                     training_generator, validation_generator,
+                                     filepath=output_dir,
+                                     early_callback_=early_callback,
+                                     early_callback_type=early_callback_type)
+elif training_plan == 'changing_lc_loss':
+    autoencoder_history = model_compile_change_lc_loss(autoencoder, lr_rate,
+                                                       lc_loss_function_metric,
+                                                       n_epochs,
+                                                       training_generator, validation_generator,
+                                                       output_dir,
+                                                       optimizer_=optimizers[optimizer_key],
+                                                       second_coeff=10,
+                                                       early_callback_=False, early_callback_type='early_stop')
 
 print('Saving the model...')
 autoencoder.save(output_dir + 'model_' + str(params['dim']) + '_' + str(params['batch_size']) + '_' +
