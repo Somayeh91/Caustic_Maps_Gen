@@ -5,6 +5,11 @@ import sys
 from matplotlib.patches import Circle
 from matplotlib.colors import LogNorm
 
+def pad_with(vector, pad_width, iaxis, kwargs):
+    pad_value = kwargs.get('padder', 10)
+    vector[:pad_width[0]] = pad_value
+    vector[-pad_width[1]:] = pad_value
+
 
 class convolver():
 
@@ -39,13 +44,17 @@ class convolver():
                                  (2.0 * (self.rsrc) ** 2)) / \
                           (2.0 * np.pi * (self.rsrc) ** 2)
 
-    def conv_map(self, map):
+    def conv_map(self, map, padding=50):
+        length = map.shape[0]
+        map = np.pad(map, (padding, ), 'wrap')
         self.magcon = fftconvolve(map, self.kernel, mode='same')  # ndimage.convolve(map, self.kernel)
         self.magcon *= self.pixsz * self.pixsz
         map_min = np.min(map.flatten())
 
         if np.min(self.magcon.flatten()) > map_min:
             self.magcon[self.magcon < map_min] = map_min
+
+        self.magcon = self.magcon[padding:length+padding, padding:length+padding]
 
     # def conv_map(self, map):
 

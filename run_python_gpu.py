@@ -26,9 +26,11 @@ def parse_options():
     # parser.add_argument('-r_port', action='store', default='8888', help='Amarel (remote) port to use.')
     parser.add_argument('-python_file', action='store', default='', help='Specify python file to run.')
     parser.add_argument('-mem', action='store', default='40000', help='Needed memory.')
+    parser.add_argument('-mem_per_cpu', action='store', default='10G', help='Needed memory.')
     parser.add_argument('-pythonFileArguments', action='store', default='', help='Arguments for the python file you are'
                                                                                  'running.')
     parser.add_argument('-n_gpu', action='store', default=1, help='Number of requested gpus')
+    parser.add_argument('-n_cpu', action='store', default=4, help='Number of requested gpus')
     parser.add_argument('-n_hrs', action='store', default=100, help='Number of hours gpus')
 
     # Parses through the arguments and saves them within the keyword args
@@ -46,18 +48,18 @@ shell_name = args.shell_name
 conda_env = args.conda_env
 python_file = args.python_file
 mem = args.mem
+mem_per_cpu = args.mem_per_cpu
 arguments = args.pythonFileArguments
 n_gpu = args.n_gpu
+n_cpu = args.n_cpu
 n_hrs = args.n_hrs
 # rport = args.r_port
 script = """#!/bin/bash
 
 #SBATCH --partition={partition}       # Partition (job queue)
 #SBATCH --job-name={jobname}          # Assign an short name to your job
-#SBATCH --nodes=1                     # Number of nodes you require
-#SBATCH --ntasks=1                    # Total # of tasks across all nodes
-#SBATCH --cpus-per-task=1             # Cores per task (>1 if multithread tasks)
-#SBATCH --mem={mem}                 # Real memory (RAM) required (MB)
+#SBATCH --mem-per-cpu={mem_per_cpu}
+#SBATCH --cpus-per-task={n_cpu}             # Cores per task (>1 if multithread tasks)
 #SBATCH --time={n_hrs}:00:00               # Total run time limit (HH:MM:SS)
 #SBATCH --output={outfilename}.out    # STDOUT output file
 #SBATCH --error={outfilename}.err     # STDERR output file (optional)
@@ -74,13 +76,14 @@ module load numpy/1.22.3-scipy-bundle-2022.05
 module load matplotlib/3.5.2 
 module load pandas/1.4.2-scipy-bundle-2022.05
 module load tensorflow/2.11.0-cuda-11.7.0
-module load cuda/12.0.0
+module load pytorch/1.12.1-cuda-11.7.0
 module load tqdm/4.64.0
 module load scipy/1.8.1-scipy-bundle-2022.05 
 . ~/maps/bin/activate
 python {python_file} -date={date} {arguments}
 """.format(partition=partition, python_file=python_file, date=date, arguments=arguments, mem=mem,
-           n_gpu=n_gpu, n_hrs=n_hrs, jobname=jobname, outfilename=outfilename,
+           mem_per_cpu=mem_per_cpu,
+           n_gpu=n_gpu, n_cpu=n_cpu, n_hrs=n_hrs, jobname=jobname, outfilename=outfilename,
            email=email, cwd=cwd, shell_name=shell_name, conda_env=conda_env)
 
 # write the slurm script to file
@@ -89,3 +92,10 @@ with open(slurm_script_file, 'w') as f:
     f.write(script)
 # and now submit the job
 os.system('sbatch {}'.format(slurm_script_file))
+
+
+
+#SBATCH --nodes=1                     # Number of nodes you require
+#SBATCH --ntasks=1                    # Total # of tasks across all nodes
+#SBATCH --cpus-per-task=1             # Cores per task (>1 if multithread tasks)
+# SBATCH --mem={mem}                 # Real memory (RAM) required (MB)

@@ -1,6 +1,6 @@
 from my_classes import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
     compareinout2D, fig_loss, tweedie_loss_func, basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, \
-    lc_loss_func
+    lc_loss_func, DataGenerator2
 import numpy as np
 import argparse
 import keras
@@ -34,12 +34,17 @@ def parse_options():
     parser.add_argument('-directory', action='store',
                         default='./../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/',
                         help='Specify the directory where the maps are stored on the supercomputer.')
+    parser.add_argument('-directory_bulk', action='store',
+                        default='./../../../fred/oz108/skhakpas/',
+                        help='Specify the directory where the maps are stored on the supercomputer.')
     parser.add_argument('-batch_size', action='store', default=16, help='Batch size for the autoencoder.')
     parser.add_argument('-n_epochs', action='store', default=20, help='Number of epochs.')
     parser.add_argument('-n_channels', action='store', default=1, help='Number of channels.')
     parser.add_argument('-lr_rate', action='store', default=0.00001, help='Learning rate.')
     parser.add_argument('-res_scale', action='store', default=10,
                         help='With what scale should the original maps resoultion be reduced.')
+    parser.add_argument('-crop_scale', action='store', default=1,
+                        help='With what scale should the original maps be cropped and multipled by 4.')
     parser.add_argument('-date', action='store',
                         default='',
                         help='Specify the directory where the results should be stored.')
@@ -89,6 +94,17 @@ def parse_options():
                         default='mse',
                         help='What is the metric to calculate statistics in the lc loss function?'
                         )
+    parser.add_argument('-lc_loss_function_coeff', action='store',
+                        default=1,
+                        help='What is the metric to calculate statistics in the lc loss function?'
+                        )
+    parser.add_argument('-add_lens_pos', action='store',
+                        default=False,
+                        help='Do you want to add the lens positions?')
+    parser.add_argument('-add_map_units', action='store',
+                        default=False,
+                        help='Do you want to add the map units in RE? That is more useful when lens positions are '
+                             'included')
 
     # Parses through the arguments and saves them within the keyword args
     arguments = parser.parse_args()
@@ -106,24 +122,30 @@ save_test_set = args.save_test_set
 print_loss = args.print_loss
 loss_func = args.loss_function
 lc_loss_function_metric = args.lc_loss_function_metric
+lc_loss_function_coeff = int(args.lc_loss_function_coeff)
 test_set_selection = args.test_set_selection
+crop_scale = float(args.crop_scale)
+include_lens_pos = args.add_lens_pos
+include_map_units = args.add_map_units
 params = {'dim': int(args.dim),
           'batch_size': int(args.batch_size),
           'n_channels': int(args.n_channels),
           'res_scale': int(args.res_scale),
+          'crop_scale': crop_scale,
           'path': args.directory,
-          'shuffle': True}
+          'shuffle': False,
+          'output_format': 'xx'}
 bottleneck_layer_name = {'2l': 'max_pooling2d_1',
                          '3l': 'conv2d_3',
                          'Unet': 'conv2d_8',
-                         'Unet2': model_design_Unet2,
+                         'Unet2': 'conv2d_6',
                          'Unet3': model_design_Unet3,
                          'basic_unet': basic_unet,
                          'Unet_NF': vae_NF}
 loss_functions = {'binary_crossentropy': keras.losses.BinaryCrossentropy(from_logits=True),
                   'poisson': keras.losses.Poisson(),
                   'tweedie': tweedie_loss_func(0.5),
-                  'lc_loss': lc_loss_func(lc_loss_function_metric)}
+                  'lc_loss': lc_loss_func(lc_loss_function_metric, lc_loss_function_coeff)}
 lr_rate = float(args.lr_rate)
 n_epochs = int(args.n_epochs)
 date = args.date
@@ -135,7 +157,7 @@ if args.output_dir is None:
 else:
     output_dir = args.output_dir
 
-dim = int(params['dim'] / params['res_scale'])
+dim = int((params['dim'] / params['res_scale'])*crop_scale)
 # Datasets
 
 if args.partition_direc is None:
@@ -146,6 +168,12 @@ else:
 print('Reading the partition file from ', partition_direc)
 file_partition = open(partition_direc, 'rb')
 partition = pkl.load(file_partition)
+
+data_dict = {}
+for index in range(11):
+    path = args.directory_bulk + 'all_maps_batch' + str(index) + '.pkl'
+    data_dict_tmp = pkl.load(open(path, "rb"))
+    data_dict = {**data_dict, **data_dict_tmp}
 
 print('Setting up the test set...')
 
@@ -158,6 +186,7 @@ elif test_set_selection == 'all_train':
 elif test_set_selection == 'all_data':
     test_set_index = np.concatenate((partition['train'], partition['validation'], partition['test']))
     n_test_set = math.trunc(len(test_set_index) / params['batch_size']) * params['batch_size']
+    test_set_index = test_set_index[:n_test_set]
 elif test_set_selection == 'sorted':
     test_set_index = np.sort(partition['test'])[:n_test_set]
 else:
@@ -165,11 +194,11 @@ else:
 
 print('Selecting a test set based on ', test_set_selection)
 print('Length of test set indexes is ', str(len(test_set_index)))
-test_generator = DataGenerator(test_set_index, **params)
-x_test = test_generator.map_reader(test_set_index, output='map_norm')
+test_generator = DataGenerator2(test_set_index, data_dict, **params)
+# x_test = test_generator.map_reader(test_set_index, output='map_norm')
 generator_indexes = test_generator.get_generator_indexes()
 # print('initial test set IDs ',test_set_index)
-x_test = x_test[generator_indexes]
+# x_test = x_test[generator_indexes]
 # test_set_index = test_set_index[generator_indexes]
 
 # print('The true order of the IDs: ', test_set_index)
@@ -191,26 +220,29 @@ if predict:
     print('Predicting on the test set via the saved model...')
     output_autoencoder = autoencoder.predict(test_generator)
 
-    print('Size of the test set: ', len(x_test))
+    print('Size of the test set: ', len(test_set_index))
     print('Size of the test set prediction: ', len(output_autoencoder))
 
     print('Saving the predictions...')
     np.save(output_dir + 'x_test_predictions', output_autoencoder)
 
     print('Saving output plots at ', output_dir)
-    for i in tqdm(range(len(output_autoencoder))):
-        fig = compareinout2D(output_autoencoder[i], np.asarray(x_test)[i], dim)
+    test_IDs = test_set_index
+    for i in tqdm(range(len(test_IDs))):
+        ID = test_IDs[i]
+        x_test = data_dict[ID]#DataGenerator.map_reader([ID], output='map_norm')
+        fig = compareinout2D(output_autoencoder[i], np.asarray(x_test), dim)
         fig.savefig(output_dir + 'compare_' + str(test_set_index[i]) + '.png', bbox_inches='tight')
-        print('True map (min,max,mean,median): ',
-              np.min(np.asarray(x_test)[i]),
-              np.max(np.asarray(x_test)[i]),
-              np.mean(np.asarray(x_test)[i]),
-              np.median(np.asarray(x_test)[i]))
-        print('Predicted map (min,max,mean,median): ',
-              np.min(output_autoencoder[i]),
-              np.max(output_autoencoder[i]),
-              np.mean(output_autoencoder[i]),
-              np.median(output_autoencoder[i]))
+        # print('True map (min,max,mean,median): ',
+        #       np.min(np.asarray(x_test)[0]),
+        #       np.max(np.asarray(x_test)[0]),
+        #       np.mean(np.asarray(x_test)[0]),
+        #       np.median(np.asarray(x_test)[0]))
+        # print('Predicted map (min,max,mean,median): ',
+        #       np.min(output_autoencoder[i]),
+        #       np.max(output_autoencoder[i]),
+        #       np.mean(output_autoencoder[i]),
+        #       np.median(output_autoencoder[i]))
 
 #
 if print_loss or save_bottleneck:
@@ -227,11 +259,12 @@ if save_bottleneck:
     bt_ly_name = bottleneck_layer_name[model_design]
     bottleneck_output = autoencoder.get_layer(bt_ly_name).output
     model_bottleneck = keras.models.Model(inputs=autoencoder.input, outputs=bottleneck_output)
-    print('Generating the latent space representation for ' + str(len(x_test)) + ' test objects...')
+    print('Generating the latent space representation for ' + str(len(test_set_index)) + ' test objects...')
     bottleneck_predictions = model_bottleneck.predict(test_generator)
 
     print('Saving the bottleneck and test set and labels at ', output_dir)
     np.save(output_dir + 'bottleneck', bottleneck_predictions)
+    np.save(output_dir + 'bottleneck_labels', test_set_index)
 
 if save_test_set:
     meta = pd.read_csv(conversion_file_directory)
