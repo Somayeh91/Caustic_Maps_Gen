@@ -12,7 +12,7 @@ import tensorflow as tf
 from keras.layers import Dense, Conv2DTranspose, Add, Reshape, Flatten, Conv2D, \
     MaxPooling2D, Concatenate
 
-from my_classes import tweedie_loss_func, lc_loss_func, custom_loss_func
+from my_models import tweedie_loss_func, lc_loss_func, custom_loss_func
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 # physical_devices = tf.config.experimental.list_physical_devices('CPU')

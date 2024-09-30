@@ -1,0 +1,83 @@
+python submit_job_python.py -python_file=Keras_script.py -mem=30000 -n_hrs=150 -pythonFileArguments="-model_design=Unet_resnet -n_epochs=50 -list_IDs_directory=./../data/ID_maps_selected_kappa_equal_gamma.dat -conversion_file_directory=./../data/maps_selected_kappa_equal_gamma.csv -loss_function=lc_loss -test_set_size=16"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=30000 -n_hrs=150 -pythonFileArguments="-model_design=Unet_NF -n_epochs=50 -list_IDs_directory=./../data/ID_maps_selected_kappa_equal_gamma.dat -conversion_file_directory=./../data/maps_selected_kappa_equal_gamma.csv -test_set_size=16 -flow_label=sylvester -n_flows=5 -add_lens_pos=True -n_channels=2"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=30000 -n_hrs=150 -pythonFileArguments="-model_design=Unet -n_epochs=50 -list_IDs_directory=./../data/ID_maps_selected_kappa_equal_gamma.dat -conversion_file_directory=./../data/maps_selected_kappa_equal_gamma.csv -test_set_size=16 -add_lens_pos=True -n_channels=2"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=30000 -n_hrs=150 -pythonFileArguments="-model_design=Unet_NF -n_epochs=50 -list_IDs_directory=./../data/ID_maps_selected_kappa_equal_gamma.dat -conversion_file_directory=./../data/maps_selected_kappa_equal_gamma.csv -test_set_size=16 -flow_label=planar -n_flows=5"
+
+python submit_job_python.py -python_file=test_model.py -n_cpu=1 -mem_per_cpu=128G -n_hrs=35 -pythonFileArguments="-model_design=Unet2 -model_direc=./../results/23-10-14-11-00-03/model_10000_8_1e-05 -output_dir=./../results/23-10-14-11-00-03/ -save_bottleneck=True -list_IDs_directory=./../data/GD1_ids_4versions_of_80percent.txt -conversion_file_directory=./../data/all_maps_4versions_of_80percent_meta_kgs.csv -batch_size=8 -test_set_selection=all_data"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=20000 -n_hrs=150 -pythonFileArguments="-model_design=Unet2 -n_epochs=50 -list_IDs_directory=./../data/GD1_ids_list2.txt -conversion_file_directory=./../data/all_maps_meta_kgs.csv -sample_size=12000 -loss_function=lc_loss -lc_loss_function_metric=sf_median -batch_size=8 -test_set_size=16"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=20000 -n_hrs=150 -pythonFileArguments="-model_design=Unet2 -n_epochs=50 -list_IDs_directory=./../data/ID_maps_selected_kappa_equal_gamma_4versions_of_80percent.txt -conversion_file_directory=./../data/maps_selected_kappa_equal_gamma_4versions_of_80percent_meta_kgs.csv -sample_size=15000 -crop_scale=0.8 -loss_function=lc_loss -lc_loss_function_metric=sf_median -batch_size=8 -test_set_size=16"
+
+
+python submit_job_python.py -python_file=Keras_script_convolved.py -mem=20000 -n_hrs=150 -pythonFileArguments="-model_design=Unet_resnet -n_epochs=100 -list_IDs_directory=./../data/ID_maps_selected_kappa_equal_gamma.dat -conversion_file_directory=./../data/maps_selected_kappa_equal_gamma.csv -rsrc=0.5 -batch_size=8 -test_set_size=16 -lr_rate=0.00001 -convolve=True"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=60000 -n_hrs=150 -pythonFileArguments="-model_design=Unet_resnet -n_epochs=100 -list_IDs_directory=./../data/ID_maps_selected_kappa_equal_gamma.dat -conversion_file_directory=./../data/maps_selected_kappa_equal_gamma.csv -loss_function=tweedie -lr_rate=0.000001"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=20000 -n_hrs=150 -pythonFileArguments="-model_design=Unet -n_epochs=50 -list_IDs_directory=./../data/ID_maps_selected_kappa_equal_gamma_4versions_of_80percent.txt -conversion_file_directory=./../data/maps_selected_kappa_equal_gamma_4versions_of_80percent_meta_kgs.csv -sample_size=15000 -crop_scale=0.8"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=20000 -n_hrs=150 -pythonFileArguments="-model_design=Unet -n_epochs=30 -list_IDs_directory=./../data/GD1_ids_list.txt -conversion_file_directory=all_maps_meta2.csv -sample_size=12000"
+
+python submit_job_python.py -python_file=test_model.py -mem=20000 -n_hrs=1 -pythonFileArguments="-model_design=Unet_resnet -model_direc=./../results/23-09-30-01-11-05/model_10000_8_1e-05 -output_dir=./../results/23-09-30-01-11-05/ -predict=True -test_set_size=16 -batch_size=8 -add_lens_pos=True -n_channels=2"
+
+python submit_job_python.py -python_file=extract_map_statistics.py -mem=20000 -n_hrs=150 -n_gpu=0 -pythonFileArguments="-stat=True -test_set_size=77030"
+
+
+
+python submit_job_python.py -python_file=Keras_script.py -mem=20000 -n_hrs=150 -arguments="-model_design=Unet -n_epochs=30 -list_IDs_directory=./../data/GD1_ids_4versions_of_80percent.txt -conversion_file_directory=./../data/all_maps_4versions_of_80percent_meta_kgs.csv -sample_size=12000"
+
+python submit_job_python.py -python_file=torch_main.py -mem=20000 -n_hrs=150 -n_gpu=1 -pythonFileArguments="-batch_size=8"
+
+python submit_job_python.py -python_file=Keras_script.py -n_cpu=1 -mem_per_cpu=128G -n_hrs=150  -pythonFileArguments="-model_design=Unet  -list_IDs_directory=./../data/GD1_ids_4versions_of_80percent.txt -conversion_file_directory=./../data/all_maps_4versions_of_80percent_meta_kgs.csv -sample_size=7840"
+
+python submit_job_python.py -python_file=test2.py -n_cpu=4 -mem_per_cpu=32G -n_hrs=10 -pythonFileArguments="-n_epochs=50 -lr_rate=0.001 -loss_function=mse"
+
+python submit_job_python.py -python_file=torch_main.py -n_cpu=4 -mem_per_cpu=40G -n_hrs=10 -pythonFileArguments="-n_epochs=500 -lr_rate=0.001 -lr_schedule=manual_smooth -loss_function=bce "
+
+python submit_job_python.py -python_file=Keras_script.py -n_cpu=1 -mem_per_cpu=128G -n_hrs=150  -pythonFileArguments="-model_design=Unet -n_epochs=200 -list_IDs_directory=./../data/GD1_ids_4versions_of_80percent.txt -conversion_file_directory=./../data/all_maps_4versions_of_80percent_meta_kgs.csv -sample_size=12300 -batch_size=8 -test_set_size=16 -loss_function=huber"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=20000 -n_cpu=1 -mem_per_cpu=90G -n_hrs=150 -pythonFileArguments="-model_design=Unet2 -n_epochs=200 -list_IDs_directory=./../data/GD1_ids_list.txt -conversion_file_directory=./../data/all_maps_meta_kgs.csv -sample_size=12000 -training_plans=changing_lr -batch_size=8 -test_set_size=16 -loss_function=custom"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=20000 -n_cpu=1 -mem_per_cpu=90G -n_hrs=150 -pythonFileArguments="-model_design=Unet2 -n_epochs=300 -list_IDs_directory=./../data/GD1_ids_list.txt -conversion_file_directory=./../data/all_maps_meta_kgs.csv -sample_size=12000 -training_plans=changing_lr -batch_size=8 -test_set_size=16 -loss_function=custom"
+
+python submit_job_python.py -python_file=Keras_script.py -mem=20000 -n_cpu=1 -mem_per_cpu=90G -n_hrs=100 -pythonFileArguments="-model_design=Unet2 -n_epochs=300 -list_IDs_directory=./../data/GD1_ids_list.txt -conversion_file_directory=./../data/all_maps_meta_kgs.csv -sample_size=12000 -training_plans=simple -batch_size=8 -test_set_size=16 -loss_function=custom -saved_model=True -saved_model_path=./../../../fred/oz108/skhakpas/results/24-04-04-23-28-13/model_10000_8_1e-05 -lr_rate=0.00001"
+
+
+#-saved_model=True -saved_model_path=./../results/23-10-14-11-06-26/model_10000_8_1e-05
+
+python submit_job_python.py -python_file=connect_kgs_bottleneck.py -n_cpu=1 -mem_per_cpu=20G -n_hrs=30 -pythonFileArguments="-training_plans=retrain -model_design=kgs_lens_pos_bt -batch_size=8 -trained_model=model_batch128_lr0.001_loss_custom_V2 -saved_model=True -loss_function=custom -n_epochs=150 -lr_rate=0.001"
+
+python submit_job_python.py -python_file=connect_kgs_bottleneck.py -n_cpu=1 -mem_per_cpu=20G -n_hrs=10 -pythonFileArguments="-training_plans=retrain -model_design=kgs_lens_pos_bt -saved_model=True -batch_size=128 -loss_function=custom -n_epochs=150 -lr_rate=0.001"
+
+python submit_job_python.py -python_file=connect_kgs_bottleneck.py -n_cpu=1 -mem_per_cpu=20G -n_hrs=10 -pythonFileArguments="-mode=train_test -model_design=kgs_lens_pos_to_bt -batch_size=128 -loss_function=custom -n_epochs=150 -lr_rate=0.001 -dim=50"
+
+python submit_job_python.py -python_file=train_test_models.py  -n_gpu=1 -mem=60G -n_hrs=20 -pythonFileArguments="-mode=train_test -model_design=kgs_lens_pos_to_bt -batch_size=128 -loss_function=binary_crossentropy -n_epochs=100 -lr_rate=0.001 -dim=50 -train_set_selection=k=g -test_set_selection=sorted"
+-----------------------------------------------------------------------
+sinteractive --time=2:0:0 --mem=60g --cpus-per-task=1
+sinteractive --time=0:30:0 --gres=gpu:1 --mem=60GB
+-----------------------------------------------------------------------
+scp <file directory> skhakpas@ozstar.swin.edu.au:./codes
+scp training_utils.py skhakpas@ozstar.swin.edu.au:./codes
+-----------------------------------------------------------------------
+
+
+python evaluation.py -fit_lc_metric_calc=True -output_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/lc_metric_plots/ -input_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/ -save_before=True -kg_fit_lc_metric_plot=True
+
+python submit_job_python.py -python_file=evaluation.py -n_cpu=1 -n_gpu=0 -mem_per_cpu=90G -n_hrs=24 -pythonFileArguments="-multi_models_read_maps=True -conv_AD_maps=True -save_maps=True -verbose=True -list_IDs_directory=./../data/eval_1000_maps.txt"
+
+python submit_job_python.py -python_file=evaluation.py -n_cpu=1 -n_gpu=0 -mem_per_cpu=90G -n_hrs=24 -pythonFileArguments="-single_model_read=True -gen_lc=True -num_lc=10000 -AD_model_ID=23-10-14-10-59-40 -AD_model_file_name=model_10000_16_1e-05 -AD_model_cost_label=bce -conv_AD_maps=True -save_maps=True -verbose=True -list_IDs_directory=./../data/eval_1000_maps.txt"
+
+python submit_job_python.py -python_file=evaluation.py -n_cpu=5 -n_gpu=0 -mem_per_cpu=3G -n_hrs=70 -jobname=lc_distance_metric_1000maps_per_map -pythonFileArguments="-lc_distance_metric=True -per_map=True -output_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/lc_metric_plots/trial2/ -list_IDs_directory=./../data/maps_cover_all_kg_s_0.1_0.5_0.8.txt -num_lc=10000 -uncertainty_calculater_steps=1000"
+python submit_job_python.py -python_file=evaluation.py -n_cpu=10 -n_gpu=0 -mem_per_cpu=3G -n_hrs=70 -jobname=lc_distance_metric_720maps_per_map_conv_0.1 -pythonFileArguments="-lc_distance_metric=True -per_map=True -output_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/lc_metric_plots/trial2/ -list_IDs_directory=./../data/720_maps_cover_all_kg_space.txt -rsrc=0.1 -num_lc=1000 -uncertainty_calculater_steps=1000"
+
+python submit_job_python.py -python_file=evaluation.py -n_cpu=1 -n_gpu=0 -mem_per_cpu=50G -n_hrs=10 -pythonFileArguments="-lc_distance_per_map100_for_saved_lc=True -output_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/lc_metric_plots/trial2_100maps/ -list_IDs_directory=./../data/eval_maps_100maps_seed33.txt -input_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/"
+
+python submit_job_python.py -python_file=evaluation.py -n_cpu=20 -n_gpu=0 -mem_per_cpu=2G -n_hrs=120 -pythonFileArguments="-FID_metric_calc=True -output_directory=./../../../fred/oz108/skhakpas/results/FID_metrics/ -uncertainty_calculater_steps=1000"
+
+python submit_job_python.py -python_file=evaluation.py -n_cpu=20 -n_gpu=0 -mem_per_cpu=1G -n_hrs=40 -pythonFileArguments="-KS_metric_calc=True -output_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/KS_metric/ -gen_ID_list=True -KS_test_name=KS"
+
+
+python submit_job_python.py -python_file=evaluation.py -n_gpu=1 -mem=30G -n_hrs=40 -pythonFileArguments="-save_LSR=True saved_before=True -output_directory=./../../../fred/oz108/skhakpas/results/23-12-14-01-12-07"

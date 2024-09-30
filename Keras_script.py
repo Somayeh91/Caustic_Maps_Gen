@@ -8,7 +8,7 @@ from tqdm import tqdm
 import pickle as pkl
 import json
 import math
-from my_classes import DataGenerator2, model_design_2l, display_model, model_fit2, model_compile, \
+from my_models import DataGenerator2, model_design_2l, display_model, model_fit2, model_compile, \
     compareinout2D, fig_loss, model_design_3l, model_design_Unet, tweedie_loss_func, \
     basic_unet, model_design_Unet2, model_design_Unet3, model_design_Unet_NF, model_design_Unet_resnet, \
     model_design_Unet_resnet2, lc_loss_func, Unet_sobel_edges1, Unet_resnet_3param, VAE, \

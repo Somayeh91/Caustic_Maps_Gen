@@ -8,3 +8,4 @@ module load pandas/1.4.2-scipy-bundle-2022.05
 module load tensorflow/2.11.0-cuda-11.7.0
 module load tqdm/4.64.0
 module load scipy/1.8.1-scipy-bundle-2022.05
+. ~/maps/bin/activate

@@ -29,9 +29,10 @@ def parse_options():
     parser.add_argument('-mem_per_cpu', action='store', default='10G', help='Needed memory.')
     parser.add_argument('-pythonFileArguments', action='store', default='', help='Arguments for the python file you are'
                                                                                  'running.')
-    parser.add_argument('-n_gpu', action='store', default=1, help='Number of requested gpus')
-    parser.add_argument('-n_cpu', action='store', default=4, help='Number of requested gpus')
+    parser.add_argument('-n_gpu', action='store', default=0, help='Number of requested gpus')
+    parser.add_argument('-n_cpu', action='store', default=1, help='Number of requested gpus')
     parser.add_argument('-n_hrs', action='store', default=100, help='Number of hours gpus')
+    parser.add_argument('-jobname', action='store', default='None', help='Number of hours gpus')
 
     # Parses through the arguments and saves them within the keyword args
     args = parser.parse_args()
@@ -40,8 +41,16 @@ def parse_options():
 
 args = parse_options()
 partition = args.partition
+n_gpu = args.n_gpu
 email = subprocess.check_output('echo $USER', shell=True).decode('ascii')[:-1]
-jobname = f'gpu_{time.strftime("%m-%d-%H-%M")}'
+jobbname = args.jobname
+if jobbname=='None':
+    if n_gpu==0:
+        jobname = f'cpu_{time.strftime("%m-%d-%H-%M")}'
+    else:
+        jobname = f'gpu_{time.strftime("%m-%d-%H-%M")}'
+else:
+    jobname = jobbname
 outfilename = f'python_{date}'
 cwd = args.directory
 shell_name = args.shell_name
@@ -50,7 +59,7 @@ python_file = args.python_file
 mem = args.mem
 mem_per_cpu = args.mem_per_cpu
 arguments = args.pythonFileArguments
-n_gpu = args.n_gpu
+
 n_cpu = args.n_cpu
 n_hrs = args.n_hrs
 # rport = args.r_port
@@ -58,14 +67,14 @@ script = """#!/bin/bash
 
 #SBATCH --partition={partition}       # Partition (job queue)
 #SBATCH --job-name={jobname}          # Assign an short name to your job
-#SBATCH --mem-per-cpu={mem_per_cpu}
-#SBATCH --cpus-per-task={n_cpu}             # Cores per task (>1 if multithread tasks)
+#SBATCH --ntasks={n_cpu}             # Number of cores requested
 #SBATCH --time={n_hrs}:00:00               # Total run time limit (HH:MM:SS)
 #SBATCH --output={outfilename}.out    # STDOUT output file
 #SBATCH --error={outfilename}.err     # STDERR output file (optional)
 #SBATCH --export=ALL                  # Export you current env to the job env
 #SBATCH --mail-type=END
 #SBATCH --mail-user=somayeh.khakpash@gmail.com
+#SBATCH --mem={mem}
 #SBATCH --gres=gpu:{n_gpu}                  # Number of GPUs
 cd {cwd}
 source {shell_name}
@@ -79,6 +88,7 @@ module load tensorflow/2.11.0-cuda-11.7.0
 module load pytorch/1.12.1-cuda-11.7.0
 module load tqdm/4.64.0
 module load scipy/1.8.1-scipy-bundle-2022.05 
+module load dill/0.3.6
 . ~/maps/bin/activate
 python {python_file} -date={date} {arguments}
 """.format(partition=partition, python_file=python_file, date=date, arguments=arguments, mem=mem,
@@ -99,3 +109,5 @@ os.system('sbatch {}'.format(slurm_script_file))
 #SBATCH --ntasks=1                    # Total # of tasks across all nodes
 #SBATCH --cpus-per-task=1             # Cores per task (>1 if multithread tasks)
 # SBATCH --mem={mem}                 # Real memory (RAM) required (MB)
+#SBATCH --gres=gpu:{n_gpu}                  # Number of GPUs
+#SBATCH --mem-per-cpu={mem_per_cpu}   # Memory per core

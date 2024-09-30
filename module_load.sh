@@ -1,7 +1,11 @@
-module load python/3.8.5
-module load numpy/1.19.2-python-3.8.5
-module load matplotlib/3.3.2-python-3.8.5
-module load pandas/1.2.2-python-3.8.5
-module load tensorflow/2.8.0-python-3.8.5
-module load tqdm/4.23.4
-module load scipy/1.6.0-python-3.8.5 
+module load gcc/11.3.0
+module load openmpi/4.1.4
+module load python/3.10.4
+module load numpy/1.22.3-scipy-bundle-2022.05
+module load matplotlib/3.5.2
+module load pandas/1.4.2-scipy-bundle-2022.05
+module load tensorflow/2.11.0-cuda-11.7.0
+module load pytorch/1.12.1-cuda-11.7.0
+module load tqdm/4.64.0
+module load scipy/1.8.1-scipy-bundle-2022.05
+. ~/maps/bin/activate

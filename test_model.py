@@ -1,4 +1,4 @@
-from my_classes import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
+from my_models import DataGenerator, model_design_2l, display_model, model_fit2, model_compile, \
     compareinout2D, fig_loss, tweedie_loss_func, basic_unet, model_design_Unet2, model_design_Unet3, vae_NF, \
     lc_loss_func, DataGenerator2
 import numpy as np
