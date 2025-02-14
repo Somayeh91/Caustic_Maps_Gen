@@ -20,10 +20,15 @@ physical_devices = tf.config.experimental.list_physical_devices('GPU')
 print("physical_devices-------------", len(physical_devices))
 # tf.debugging.set_log_device_placement(True)
 
+# Suppress TensorFlow logging
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0 = all messages, 1 = info, 2 = warnings, 3 = errors only
+
+# Alternatively, use the following to suppress even more messages (for TF 2.11+)
+tf.get_logger().setLevel('ERROR')
+
 if len(physical_devices) == 0:
     print('No GPUs are accessible!')
     sys.exit()
-
 
 # tf.config.experimental.set_memory_growth(physical_devices[0], physical_devices[0], True)
 # mirrored_strategy = tf.distribute.MirroredStrategy()
@@ -33,11 +38,15 @@ def parse_options():
     """Function to handle options speficied at command line
     """
     parser = argparse.ArgumentParser(description='Process input parameters.')
-    parser.add_argument('-dim', action='store', default=10000,
-                        help='What is the dimension of the maps.')
     parser.add_argument('-directory', action='store',
                         default='./../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/',
                         help='Specify the directory where the maps are stored on the supercomputer.')
+    parser.add_argument('-input_size', action='store',
+                        default=10000,
+                        help='size of each side the original maps in pixels.')
+    parser.add_argument('-output_size', action='store',
+                        default=1000,
+                        help='size of each side the maps with reduced resolution in pixels.')
     parser.add_argument('-batch_size', action='store', default=None, help='Batch size for the autoencoder.')
     parser.add_argument('-n_epochs', action='store', default=None, help='Number of epochs.')
     parser.add_argument('-n_channels', action='store', default=None, help='Number of channels.')
@@ -56,7 +65,7 @@ def parse_options():
     parser.add_argument('-output_directory', action='store',
                         default=None,
                         help='Specify the output directory otherwise it will create a new directory.')
-    parser.add_argument('-test_set_size', action='store',
+    parser.add_argument('-n_test_set', action='store',
                         default=10,
                         help='Size of the test set.'),
     parser.add_argument('-sample_size', action='store',
@@ -70,6 +79,10 @@ def parse_options():
     parser.add_argument('-saved_model_path', action='store',
                         default='./../../../fred/oz108/skhakpas/results/23-03-09-01-39-47/model_10000_8_1e-05',
                         help='In retrain_test mode, give the path to an already-saved model.'
+                        )
+    parser.add_argument('-saved_model_format', action='store',
+                        default='json',
+                        help='format of the saved model.'
                         )
     parser.add_argument('-saved_LSR_path', action='store',
                         default='./../../../fred/oz108/skhakpas/results/23-12-14-01-12-07/LSR_23-12-14-01-12'
@@ -120,9 +133,6 @@ def parse_options():
     parser.add_argument('-add_map_units', action='store',
                         default=False,
                         help='Do you need map units of R_E as input?')
-    parser.add_argument('-n_test_set', action='store',
-                        default=10,
-                        help='Number of test objects.')
     parser.add_argument('-evaluation_metric', action='store',
                         default='ssm',
                         help='Name of the metric to use to evaluate AD maps.')
@@ -134,7 +144,6 @@ def parse_options():
 args = parse_options()
 model_design_key = args.model_design
 model_params = model_parameters[model_design_key]
-
 
 model_params, running_params = update_dicts(model_params, running_params, args)
 output_dir = running_params['output_dir']
@@ -153,7 +162,7 @@ if not running_params['mode'] == 'test':
     file = open(output_dir + 'model_params.pkl', 'wb')
     dill.dump(model_params, file)
 
-# Setting up the data and cimpiling the model
+# Setting up the data and compiling the model
 print('Setting up the inputs...')
 if not (model_design_key.startswith('kgs') or model_design_key.startswith('bt')):
     training_generator, \
@@ -163,21 +172,30 @@ if not (model_design_key.startswith('kgs') or model_design_key.startswith('bt'))
     model_params_, \
     partition = data_gererators_set_up_AD(running_params, model_params)
     print('Setting up the model in mode %s...' % running_params['mode'])
+
     if running_params['mode'].startswith('retrain') or \
             running_params['mode'] == 'test' or \
             running_params['mode'] == 'evaluate':
         running_params_old = running_params_
         model_params_old = model_params_
         model_ID = running_params_old['saved_model_path'].split('/')[-2]
-        model_file = running_params_old['saved_model_path'].split('/')[-1]
-        model = read_AD_model(model_ID, model_file, model_params_old['default_loss'])
+        main_dir = running_params_old['saved_model_path'].split(model_ID)[0]
+        if running_params['saved_model_format'] == 'old_version':
+            model_file = running_params_old['saved_model_path'].split('/')[-1]
+        else:
+            model_file = running_params_old['saved_model_path'].split('/')[-1].split('.')[0]
+        model = read_saved_model(main_dir,
+                                 model_ID,
+                                 model_file,
+                                 cost_label=model_params_old['loss_label'],
+                                 mode=running_params['saved_model_format'])
+        print('model is:', model)
     else:
         model = set_up_model(model_design_key, model_params, running_params)
 else:
     train_object_X, train_object_Y, test_object_X, test_object_Y, ids_train, ids_test = data_generator_set_up_kgs_bt(
         model_design_key,
         running_params)
-    print(ids_test)
     if running_params['mode'].startswith('retrain') or \
             running_params['mode'] == 'test' or \
             running_params['mode'] == 'evaluate':
@@ -207,7 +225,8 @@ if running_params['mode'] != 'test':
                                   y_train=None,
                                   x_validation=validation_generator,
                                   y_validation=None,
-                                  filepath=None,
+                                  filepath=output_dir,
+                                  batch_size=running_params['batch_size'],
                                   early_callback_=running_params['early_callback'],
                                   use_multiprocessing=True)
     else:
@@ -218,25 +237,28 @@ if running_params['mode'] != 'test':
                                   y_train=train_object_Y,
                                   x_validation=None,
                                   y_validation=None,
-                                  filepath=None,
+                                  filepath=output_dir,
+                                  batch_size=running_params['batch_size'],
                                   early_callback_=running_params['early_callback'],
                                   use_multiprocessing=True)
 
     print('Saving the model...')
     model_json = model.to_json()
 
-    with open(output_dir + "model_%i_%i_%s.json" % (running_params['dim'],
+    with open(output_dir + "model_%i_%i_%s.json" % (running_params['input_size'],
                                                     running_params['batch_size'],
-                                                    str(running_params['learning_rate'])), 'w') as json_file:
+                                                    f"{running_params['learning_rate']:.0e}"), 'w') as json_file:
         json_file.write(model_json)
 
     # serialize weights to HDF5
-    model.save_weights(output_dir + "model_weights_%i_%i_%s.h5" % (running_params['dim'],
+    model.save_weights(output_dir + "model_%i_%i_%s_weights.h5" % (running_params['input_size'],
                                                                    running_params['batch_size'],
-                                                                   str(running_params['learning_rate'])))
+                                                                   f"{running_params['learning_rate']:.0e}"))
 
     print('Saving the model history...')
-    with open(output_dir + 'model_history.pkl', 'wb') as file_pi:
+    with open(output_dir + "model_%i_%i_%s_history.h5" % (running_params['input_size'],
+                                                          running_params['batch_size'],
+                                                          f"{running_params['learning_rate']:.0e}"), 'wb') as file_pi:
         pkl.dump(model_history.history, file_pi)
 
     print('Plotting the loss function...')
@@ -245,42 +267,72 @@ if running_params['mode'] != 'test':
 
 print('Making predictions on the test set...')
 if not (model_design_key.startswith('kgs') or model_design_key.startswith('bt')):
-    output = model.predict(test_generator)
     test_IDs = partition['test']
-    return_testimg_by_id = lambda a: test_generator.map_reader([test_IDs[a]], output='map_norm')
-    plot_dim = int((running_params['dim'] / running_params['res_scale']) * model_params['crop_scale'])
+    return_testimg_by_id = lambda a: norm_maps(read_binary_map(a, input_size=running_params['input_size']))
+    if running_params['test_selection'] == 'random' or\
+            running_params['test_selection'] == 'sorted' or\
+            running_params['test_selection'] == 'given':
+        x_tests = np.asarray([return_testimg_by_id(i) for i in test_IDs])
+        if model_params['include_lens_pos']:
+            lens_pos_tests = np.asarray([process_read_lens_pos(i) for i in test_IDs])
+            x_tests = [x_tests, lens_pos_tests]
+        output = model.predict(x_tests)
+    else:
+        n_ids = int(test_IDs/running_params['batch_size'])
+        test_IDs = test_IDs[:n_ids]
+        x_tests = np.asarray([return_testimg_by_id(i) for i in test_IDs])
+        output = model.predict(test_generator)
+
+    if running_params['input_size'] == 10000:
+        plot_dim = int((running_params['input_size'] / running_params['res_scale']) * model_params['crop_scale'])
+    else:
+        plot_dim = 1000
 else:
     output = model.predict(test_object_X)
     test_IDs = ids_test
     if not model_design_key == 'bt_to_kgs':
-        plot_dim = running_params['dim']
+        plot_dim = running_params['input_size']
         return_testimg_by_id = lambda a: test_object_Y[a]
 
 if not model_design_key == 'bt_to_kgs':
     print('Plotting the input/output compare figure...')
     for i in tqdm(range(len(test_IDs))):
         ID = test_IDs[i]
-        x_test = return_testimg_by_id(i)
+        if model_params['include_lens_pos']:
+            x_test = x_tests[0][i]
+        else:
+            x_test = x_tests[i]
 
         fig = compareinout(output[i],
-                           np.asarray(x_test),
+                           x_test,
                            plot_dim,
                            output_dir,
                            model_design_key,
                            ID)
+
+    if model_params['include_lens_pos']:
+        x_tests = x_tests[0]
+    else:
+        x_tests = x_tests
+    metrics = evaluate_AD_maps(x_tests, output, model_design_key+'_0')
+    print('Metric for %i test maps using the %s model is %.3f, %.3f, %.3f.' % (running_params['batch_size'],
+                                                                               model_design_key,
+                                                                               np.mean(metrics[:, 0]),
+                                                                               np.mean(metrics[:, 1]),
+                                                                               np.mean(metrics[:, 2])))
+
     # Evaluating the model by comparing decoder_generated maps from CNN_generated LSR with the Gmaps
-    AD_model_ID = running_params['saved_LSR_path'].split('/')[8]
-    print(ids_test)
-    metric = evaluate_kgs_generated_maps(test_IDs,
-                                         AD_model_ID,
-                                         output,
-                                         running_params,
-                                         metric=running_params['evaluation_metric'])
-    print('Evaluating the model by comparing decoder_generated maps from CNN_generated LSR with the Gmaps:')
-    print('%s metric for %i maps using the %s model is %.3f.' % (running_params['evaluation_metric'],
-                                                                 len(test_IDs),
-                                                                 model_design_key,
-                                                                 metric))
+    # AD_model_ID = running_params['saved_LSR_path'].split('/')[8]
+    # metric = evaluate_kgs_generated_maps(test_IDs,
+    #                                      AD_model_ID,
+    #                                      output,
+    #                                      running_params,
+    #                                      metric=running_params['evaluation_metric'])
+    # print('Evaluating the model by comparing decoder_generated maps from CNN_generated LSR with the Gmaps:')
+    # print('%s metric for %i maps using the %s model is %.3f.' % (running_params['evaluation_metric'],
+    #                                                              len(test_IDs),
+    #                                                              model_design_key,
+    #                                                              metric))
 else:
     # analyze_bt_to_kgs_results(output, test_object_Y, output_dir)
     compareinout_bt_to_kgs(output, test_object_Y, output_dir)
@@ -292,4 +344,3 @@ else:
            np.mean(np.linalg.norm(test_object_Y[:, 1] - output[:, 1])),
            np.mean(np.linalg.norm(test_object_Y[:, 2] - output[:, 2]))
            ))
-

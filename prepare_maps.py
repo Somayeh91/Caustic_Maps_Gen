@@ -1,21 +1,42 @@
-from metric_utils import *
+from metric_utils import process_fit_lc2
 from plotting_utils import plot_example_lc, plot_example_conv
 from maps_util import read_binary_map, read_map_meta, norm_maps, read_AD_model
 from conv_utils import convolve_map, lc_gen_set, lc_gen_one
 import time
 import multiprocessing as mp
 import pickle as pkl
+import numpy as np
+import sys
 
 
 def process_read(ID_):
-    ID, i = ID_[0], ID_[1]
-    print('Step %i' % i)
-    map_ = read_binary_map(ID)
-    mag_convertor = read_map_meta(ID)[0]
-    map_ = norm_maps(map_,
-                     mag_convertor)
+    ID, input_size, output_size, to_mag, norm = ID_[0], ID_[1], ID_[2], ID_[3], ID_[4]
+    map_ = read_binary_map(ID,
+                           input_size=input_size,
+                           output_size=output_size,
+                           to_mag=to_mag)
+    if norm:
+        if to_mag:
+            map_ = norm_maps(map_)
+        else:
+            print('Only map values in units of magnification can be normalized')
+            return
 
     return map_
+
+
+def process_get_maps_min_max(ID_):
+    ID, input_size, output_size = ID_[0], ID_[1], ID_[2]
+    map_ = read_binary_map(ID,
+                           input_size=input_size,
+                           output_size=output_size,
+                           to_mag=True)
+    mag_min = np.min(map_.flatten())
+    mag_max = np.max(map_.flatten())
+    mag_log_min = np.min(np.log10(map_.flatten() + 0.004))
+    mag_log_max = np.max(np.log10(map_.flatten() + 0.004))
+
+    return mag_min, mag_max, mag_log_min, mag_log_max
 
 
 def process_conv(ls):
@@ -31,8 +52,12 @@ def process_AD_predict_one_map(input):
     AD = input[0]
     map_ = input[1]
     shapes = map_.shape
-    AD_maps = AD.predict(map_.reshape((1, shapes[0], shapes[0], 1)))
-    AD_maps = AD_maps.reshape((shapes[0], shapes[0]))
+    AD_maps = AD.predict(map_.reshape((1,
+                                       shapes[0],
+                                       shapes[0],
+                                       1)))
+    AD_maps = AD_maps.reshape((shapes[0],
+                               shapes[0]))
     return AD_maps
 
 
@@ -40,8 +65,12 @@ def process_save_LSR_one_map(input):
     LSR_layer = input[0]
     map_ = input[1]
     shapes = map_.shape
-    AD_LSR = LSR_layer.predict(map_.reshape((1, shapes[0], shapes[0], 1)))
-    AD_LSR = AD_LSR.reshape((AD_LSR.shape[1], AD_LSR.shape[1]))
+    AD_LSR = LSR_layer.predict(map_.reshape((1,
+                                             shapes[0],
+                                             shapes[0],
+                                             1)))
+    AD_LSR = AD_LSR.reshape((AD_LSR.shape[1],
+                             AD_LSR.shape[1]))
     return AD_LSR
 
 
@@ -94,26 +123,21 @@ def process_lc2b(ls):
     return [process_fit_lc2([lc_picked[i], lcs]) for i in range(len(lc_picked))]
 
 
-def process_lc3(input):
-    import tensorflow, keras
+def select_seed(mode, iter):
+    if mode == 'random':
+        seed = np.nan
+    elif mode == 'fixed':
+        seed = iter
+    return seed
 
-    iter, ID, rsrcs, steps, num_lc, model_params, mode_select, output_directory = input[0], input[1], input[2], input[
-        3], input[4], input[5], input[6], input[7]
-    # print('Iteration %i'%iter)
-    if isinstance(rsrcs, list):
-        rsrcs_len = 1
-    else:
-        rsrcs_len = len(rsrcs) + 1
 
-    if isinstance(ID, list):
-        ID0 = ID[0]
-        ID1 = ID[1]
-        map_0 = process_read([ID0, ID0])
-        map_ = process_read([ID1, ID1])
-    else:
-        ID0 = ID
-        map_0 = process_read([ID0, ID0])
-        map_ = map_0
+def process_lc_gen(input):
+    iter, map, map_AD, rsrcs, num_lc, mode_select, mode_rand, output_directory, save_output = input[0], input[1], input[
+        2], \
+                                                                                              input[3], input[
+                                                                                                  4], input[5], \
+                                                                                              input[6], input[
+                                                                                                  7], input[8]
 
     if mode_select == 'all':
         modes = ['true', 'true_conv', 'AD', 'AD_conv']
@@ -123,59 +147,29 @@ def process_lc3(input):
         modes = ['AD', 'AD_conv']
     elif mode_select == 'true':
         modes = ['true']
+    elif mode_select == 'AD':
+        modes = ['AD']
 
-    lcs_picked_conv = {}
-    # print('Generating %i picked light curves for map ID= %i' % (steps, ID0))
-    seedd = 0
-    lcs_picked = np.array([lc_gen_one(map_0, seedd + i) for i in range(steps)])
-    # np.save('./../../../fred/oz108/skhakpas/results/save_lcs_lc_distance_metric/lcs_picked', lcs_picked)
-    all_lc_fit_lc_metric_all_map = np.zeros((2, rsrcs_len, steps), dtype=np.float16)
-    # all_AD_lc_fit_lc_metric_all_map = np.zeros((rsrcs_len, steps), dtype=np.float16)
-    # print(lcs_picked)
+    lcs_picked = {}
+
     for mode in modes:
-        # print('Doing mode %s' % mode)
-
-        if len(mode.split('_')) > 1:
-            if not bool(lcs_picked_conv):
-                for r, rsrc in enumerate(rsrcs):
-                    map_conv_0 = process_conv([map_0, rsrc])
-                    if isinstance(ID, list):
-                        map_conv = process_conv([map_, rsrc])
-                    else:
-                        map_conv = map_conv_0
-                    seedd = 0
-                    lcs_picked_conv[str(rsrc)] = np.array(
-                        [lc_gen_one(map_conv_0, seedd + i) for i in range(steps)])
-                    # np.save('./../../../fred/oz108/skhakpas/results/save_lcs_lc_distance_metric/lcs_picked_conv_%s' % (
-                    #     str(rsrc)), lcs_picked_conv[str(rsrc)])
-
         if mode == 'true':
-
-            all_lc_fit_lc_metric_all_map[0, 0, :] = process_lc2([map_, num_lc, lcs_picked])
-            # print(all_lc_fit_lc_metric_all_map[0, 0,:])
+            lcs_picked['true'] = [lc_gen_one(map, select_seed(mode_rand, i)) for i in range(num_lc)]
+        elif mode == 'AD':
+            lcs_picked['AD'] = [lc_gen_one(map_AD, select_seed(mode_rand, i)) for i in range(num_lc)]
         elif mode == 'true_conv':
             for r, rsrc in enumerate(rsrcs):
-                all_lc_fit_lc_metric_all_map[0, r + 1, :] = process_lc2([map_conv, num_lc,
-                                                                         lcs_picked_conv[str(rsrc)]])
+                map_conv_0 = process_conv([map, rsrc])
+                lcs_picked['true_conv_%.1f' % rsrc] = [lc_gen_one(map_conv_0, select_seed(mode_rand, i)) for i in
+                                                       range(num_lc)]
+        elif mode == 'AD_conv':
+            for r, rsrc in enumerate(rsrcs):
+                map_conv_0 = process_conv([map_AD, rsrc])
+                lcs_picked['AD_conv_%.1f' % rsrc] = [lc_gen_one(map_conv_0, select_seed(mode_rand, i)) for i in
+                                                     range(num_lc)]
 
-        elif mode.startswith('AD'):
-            # if np.isnan(autoencoder):
-            try:
-                print(autoencoder)
-            except NameError:
-                autoencoder = read_AD_model(model_params[0],
-                                            model_params[1],
-                                            model_params[2])
-                map_AD = process_AD_predict_one_map([autoencoder, map_])
-            if mode == 'AD':
-                all_lc_fit_lc_metric_all_map[1, 0, :] = process_lc2([map_AD, num_lc, lcs_picked])
-            elif mode == 'AD_conv':
-                for r, rsrc in enumerate(rsrcs):
-                    map_AD_conv = process_conv([map_AD, rsrc])
-                    all_lc_fit_lc_metric_all_map[1, r + 1, :] = process_lc2([map_AD_conv, num_lc,
-                                                                             lcs_picked_conv[
-                                                                                 str(rsrc)]])
-    np.save(output_directory, all_lc_fit_lc_metric_all_map)
+    np.save(output_directory + '_mode_%s_%i_lightcurves_in_720_maps' % (mode_rand, num_lc), lcs_picked)
+    return lcs_picked
 
 
 def process_lc4(input):
@@ -186,10 +180,11 @@ def process_lc4(input):
                                                                                                       input[6], input[
                                                                                                           7], input[8], \
                                                                                                       input[9]
+
     # print('Iteration %i'%iter)
     model_ID = iter.split('_')[0]
     map_ID = iter.split('_')[1]
-    if isinstance(rsrcs, list):
+    if not isinstance(rsrcs, list):
         rsrcs_len = 1
     else:
         rsrcs_len = len(rsrcs) + 1
@@ -221,7 +216,8 @@ def process_lc4(input):
         seedd = 0
         lcs_picked = np.array([lc_gen_one(map_0, seedd + i) for i in range(steps)])
     all_lc_fit_lc_metric_all_map = np.zeros((2, rsrcs_len, steps), dtype=np.float16)
-    np.save('./../../../fred/oz108/skhakpas/results/save_lcs_lc_distance_metric/lcs_picked_%s' % map_ID, lcs_picked)
+    if save_output:
+        np.save('./../../../fred/oz108/skhakpas/results/save_lcs_lc_distance_metric/lcs_picked_%s' % map_ID, lcs_picked)
     lcs_picked = [lcs_picked[i][0] for i in range(len(lcs_picked))]
 
     for mode in modes:
@@ -239,9 +235,10 @@ def process_lc4(input):
                     seedd = 0
                     lcs_picked_conv[str(rsrc)] = np.array(
                         [lc_gen_one(map_conv_0, seedd + i) for i in range(steps)])
-                    np.save(
-                        './../../../fred/oz108/skhakpas/results/save_lcs_lc_distance_metric/lcs_picked_%s_conv_%s' % (
-                            map_ID, str(rsrc)), lcs_picked_conv[str(rsrc)])
+                    if save_output:
+                        np.save(
+                            './../../../fred/oz108/skhakpas/results/save_lcs_lc_distance_metric/lcs_picked_%s_conv_%s' % (
+                                map_ID, str(rsrc)), lcs_picked_conv[str(rsrc)])
                     lcs_picked_conv[str(rsrc)] = [lcs_picked_conv[str(rsrc)][i][0] for i in
                                                   range(len(lcs_picked_conv[str(rsrc)]))]
 
@@ -266,6 +263,7 @@ def process_lc4(input):
                                                                             mode + '_' + str(iter) + '_%s' % rsrc)
     if save_output:
         np.save(output_directory, all_lc_fit_lc_metric_all_map)
+    return all_lc_fit_lc_metric_all_map
 
 
 def prepare_maps(list_ID,
@@ -275,13 +273,17 @@ def prepare_maps(list_ID,
                  cost_label,
                  num_lc,
                  output_direc,
+                 input_map_size=10000,
+                 output_map_size=1000,
                  conv_AD_maps=True,
                  plot_exp_conv=False,
                  gen_lc=True,
                  plot_exp_lc=False,
                  save_maps=True,
                  save_lcs=True,
-                 verbose=False):
+                 verbose=False,
+                 to_mag=True,
+                 norm=True):
     num_cores = mp.cpu_count()
     num_to_process = min(num_cores, len(list_ID))
     pool = mp.Pool(processes=num_to_process)
@@ -296,7 +298,7 @@ def prepare_maps(list_ID,
     if verbose:
         print('Reading all the true maps...')
     temp0 = pool.map(process_read,
-                     [[ID, i] for i, ID in enumerate(list_ID)])
+                     [[ID, input_map_size, output_map_size, to_mag, norm] for i, ID in enumerate(list_ID)])
     maps_dict['true_maps'] = np.asarray(temp0)
 
     if len(rsrcs) != 0:
@@ -466,6 +468,8 @@ def prepare_maps(list_ID,
                      open(output_direc + 'AD_lcs_%s.pkl' % model_ID, 'wb'))
 
     return maps_dict, \
-               AD_maps_dict, \
-               lcs_dict, \
-               AD_lcs_dict
+           AD_maps_dict, \
+           lcs_dict, \
+           AD_lcs_dict
+
+

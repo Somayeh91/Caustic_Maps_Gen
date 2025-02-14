@@ -13,8 +13,10 @@ import json
 from more_info import directory_bulk, len_pos_directory, loss_functions, optimizers
 from keras.models import model_from_json
 from skimage.transform import resize
-import os
+import os, sys
 import keras
+import h5py
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 map_direc = './../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/'
 model_direc = './../../../fred/oz108/skhakpas/results/'
@@ -24,25 +26,121 @@ model_direc = './../../../fred/oz108/skhakpas/results/'
 # model_direc = '/Users/somayeh/Downloads/job_results_downloaded/'
 
 
-def read_AD_model(model_ID, model_file, cost_label):
-    if cost_label.startswith('lc'):
-        if cost_label == 'lc_bce':
-            autoencoder = load_model(model_direc +
-                                     model_ID + '/' + model_file,
-                                     custom_objects={'tweedie_loglikelihood': tweedie_loss_func(0.5)})
-        else:
-            metric = cost_label.split('_')[1]
-            autoencoder = load_model(model_direc +
-                                     model_ID + '/' + model_file,
-                                     custom_objects={'lc_loglikelihood': lc_loss_func(metric)})
-    elif cost_label == 'custom':
-        autoencoder = load_model(model_direc +
-                                 model_ID + '/' + model_file,
-                                 custom_objects={'custom_loglikelihood': custom_loss_func()})
+def read_AD_model(direc, cost_label):
+    """
+    Loads an autoencoder(AD) model from the specified directory,
+    handling custom loss functions if needed.
+
+    Parameters:
+    -----------
+    direc : str
+        Path to the saved model directory or file.
+    cost_label : str or None
+        Custom loss function identifier used during model training.
+        - If `None`, the model is loaded with default settings.
+        - If provided, the function converts the label to the corresponding loss function
+          using `convert_custom_loss_labels()`.
+
+    Returns:
+    --------
+    autoencoder : keras.Model
+        The loaded Keras autoencoder model.
+
+    Notes:
+    ------
+    - Calls `convert_custom_loss_labels(cost_label)` to obtain the appropriate loss function
+      if a custom loss is specified.
+    - Uses `load_model()` to restore the saved model.
+    - If `cost_label` is `None`, the model is loaded without specifying custom objects.
+    - Assumes `convert_custom_loss_labels()` is a predefined function that maps loss labels
+      to their corresponding implementations.
+    """
+
+    call_loss_label, call_loss_function = convert_loss_labels(cost_label)
+    if not call_loss_label is None:
+        autoencoder = load_model(direc,
+                                 custom_objects={call_loss_label: call_loss_function})
     else:
-        autoencoder = load_model(model_direc +
-                                 model_ID + '/' + model_file)
+        autoencoder = load_model(direc)
     return autoencoder
+
+
+def read_json_model(directory, cost_label):
+    # Load the JSON file
+    call_loss_label, call_loss_function = convert_loss_labels(cost_label)
+
+    json_file = open(directory, 'r')
+
+    loaded_model_json = json_file.read()
+    json_file.close()
+
+    # Reconstruct the model
+    if not call_loss_label is None:
+        autoencoder = model_from_json(loaded_model_json, custom_objects={call_loss_label: call_loss_function})
+    else:
+        autoencoder = model_from_json(loaded_model_json)
+    return autoencoder
+
+
+def load_model_weights(model, directory):
+    model.load_weights(directory)
+    return model
+
+def read_saved_model(directory,
+                     model_ID,
+                     model_file,
+                     cost_label=None,
+                     mode='json'):
+    """
+    Loads a saved machine learning model from the specified directory, supporting different storage formats.
+
+    Parameters:
+    -----------
+    directory : str
+        Path to the directory where the model is stored.
+    model_ID : str
+        Unique identifier for the model within the directory.
+    model_file : str
+        Base filename of the model (without extension).
+    cost_label : str or None, default=None
+        Custom loss function label, used when loading the model.
+    mode : str, default='json'
+        Specifies the format of the saved model:
+        - 'json': Loads a model from a JSON architecture file and corresponding HDF5 weight file.
+        - 'old_version': Loads a model using `read_AD_model()` (assumed to handle older saved models).
+
+    Returns:
+    --------
+    model : keras.Model
+        The loaded Keras model.
+
+    Notes:
+    ------
+    - If `mode='json'`, the function:
+        1. Loads the model architecture from a JSON file (`model_file.json`).
+        2. Loads the model weights from a corresponding HDF5 file (`model_file_weights.h5`).
+    - If `mode='old_version'`, the function loads the model using `read_AD_model()`,
+      which may support models saved in an older format.
+    - Assumes `read_json_model()` and `load_model_weights()` are predefined functions
+      for handling JSON-based model loading.
+    - Assumes `read_AD_model()` is available to load older models with optional custom loss functions.
+    """
+
+    if mode == 'json':
+        print('reading model in path=%s' % (directory + model_ID + '/' + model_file + '.json'))
+        model = read_json_model(directory + model_ID + '/' + model_file + '.json', cost_label)
+        print('Loading weights in path=%s' % (directory + model_ID + '/' + model_file + '_weights.h5'))
+        model = load_model_weights(model, directory + model_ID + '/' + model_file + '_weights.h5')
+
+    if mode == 'old_version':
+        model = read_AD_model(directory + model_ID + '/' + model_file, cost_label)
+
+    if model is None:
+        print('No model was found.')
+        sys.exit()
+
+    return model
+
 
 def AD_decoder(AD, LSR_input_layer_name, LSR_output_layer_name):
     recons_output = AD.get_layer(LSR_output_layer_name).output
@@ -50,13 +148,14 @@ def AD_decoder(AD, LSR_input_layer_name, LSR_output_layer_name):
     model_rec = keras.models.Model(inputs=recons_input, outputs=recons_output)
     return model_rec
 
+
 def read_cnn_model_with_weights(saved_model_path):
     file_params = open(saved_model_path + 'params.pkl', 'rb')
     running_params = pkl.load(file_params)
-    model_path = saved_model_path + "model_%i_%i_%s.json" % (running_params['dim'],
+    model_path = saved_model_path + "model_%i_%i_%s.json" % (running_params['input_size'],
                                                              running_params['batch_size'],
                                                              str(running_params['learning_rate']))
-    weights_path = saved_model_path + "model_weights_%i_%i_%s.h5" % (running_params['dim'],
+    weights_path = saved_model_path + "model_weights_%i_%i_%s.h5" % (running_params['input_size'],
                                                                      running_params['batch_size'],
                                                                      str(running_params['learning_rate']))
     # load json and create model
@@ -72,16 +171,29 @@ def read_cnn_model_with_weights(saved_model_path):
     return loaded_model
 
 
-def read_binary_map(ID, scaling_factor=10, to_mag=False):
+def read_binary_map(ID, input_size, output_size=1000, to_mag=True):
     f1 = open(map_direc + str(ID) + "/map.bin", "rb")
     map_tmp = np.fromfile(f1, 'i', -1, "")
-    map = (np.reshape(map_tmp, (-1, 10000)))
+    map = (np.reshape(map_tmp, (-1, input_size)))
+    scaling_factor = input_size // output_size
 
     if to_mag:
         mag_convertor = read_map_meta(ID)[0]
-        return map[0::scaling_factor, 0::scaling_factor] * mag_convertor
+        if scaling_factor != 0:
+            if input_size == 4096:
+                return map[0::scaling_factor, 0::scaling_factor][12:-12, 12:-12] * mag_convertor
+            else:
+                return map[0::scaling_factor, 0::scaling_factor] * mag_convertor
+        else:
+            return map * mag_convertor
     else:
-        return map[0::scaling_factor, 0::scaling_factor]
+        if scaling_factor != 0:
+            if input_size == 4096:
+                return map[0::scaling_factor, 0::scaling_factor][12:-12, 12:-12]
+            else:
+                return map[0::scaling_factor, 0::scaling_factor]
+        else:
+            return map
 
 
 def read_map_meta(ID):
@@ -119,12 +231,17 @@ def read_map_meta_for_file(input_dir,
     df.to_csv(output_dir + output_filename)
 
 
-def norm_maps(map, coeff, offset=0.004, norm=True, norm_min=-3, norm_max=6):
-    temp = np.log10(map * coeff + offset)
-    if norm:
-        return NormalizeData(temp, data_max=norm_max, data_min=norm_min)
-    else:
-        return temp
+def norm_maps(map, offset=0.004, norm_min=-3, norm_max=6):
+    '''
+    This function normalized the maps when map values are in units of magnification.
+    :param map: input map in units of magnification
+    :param offset: an offset value to un-zero map values
+    :param norm_min: minimum value for min-max normalization (obtained from all maps)
+    :param norm_max: maximum value for min-max normalization (obtained from all maps)
+    :return: an output map with pixel values between 0 and 1e
+    '''
+    temp = np.log10(map + offset)
+    return NormalizeData(temp, data_max=norm_max, data_min=norm_min)
 
 
 def reverse_norm(map, norm_min=-3, norm_max=6):
@@ -227,17 +344,6 @@ def eval_maps_selection(num=100, seed=33):
     return IDs_selected
 
 
-def read_all_data():
-    data_dict = {}
-
-    for index in range(11):
-        path = './../../../fred/oz108/skhakpas/all_maps_batch' + str(index) + '.pkl'
-        data_dict_tmp = pkl.load(open(path, "rb"))
-        data_dict = {**data_dict, **data_dict_tmp}
-
-    return data_dict
-
-
 def split_data(keys,
                train_percentage=0.8,
                valid_percentage=0.1):
@@ -327,6 +433,7 @@ def update_dicts(model_dict, train_dict, arguments):
         pass
     else:
         model_dict['default_loss'] = loss_functions[arguments.loss_function]
+    model_dict['loss_label'] = arguments.loss_function
     if arguments.optimizer is None:
         pass
     else:
@@ -373,10 +480,14 @@ def update_dicts(model_dict, train_dict, arguments):
         pass
     else:
         train_dict['batch_size'] = int(arguments.batch_size)
-    if arguments.dim is None:
+    if arguments.input_size is None:
         pass
     else:
-        train_dict['dim'] = int(arguments.dim)
+        train_dict['input_size'] = int(arguments.input_size)
+    if arguments.output_size is None:
+        pass
+    else:
+        train_dict['output_size'] = int(arguments.output_size)
     if arguments.res_scale is None:
         pass
     else:
@@ -393,6 +504,12 @@ def update_dicts(model_dict, train_dict, arguments):
         pass
     else:
         train_dict['saved_model_path'] = arguments.saved_model_path
+
+    if arguments.saved_model_format is None:
+        pass
+    else:
+        train_dict['saved_model_format'] = arguments.saved_model_format
+
     if arguments.saved_LSR_path is None:
         pass
     else:
@@ -416,11 +533,19 @@ def update_dicts(model_dict, train_dict, arguments):
     else:
         train_dict['output_dir'] = arguments.output_directory
 
-    train_dict['n_test_set'] = arguments.n_test_set
-    train_dict['test_IDs'] = [int(item) for item in arguments.test_IDs.split(',')]
+    train_dict['n_test_set'] = int(arguments.n_test_set)
     train_dict['train_selection'] = arguments.train_set_selection
     train_dict['test_selection'] = arguments.test_set_selection
-    train_dict['early_callback'] = arguments.early_callback
+
+    if train_dict['test_selection'] == 'given':
+        train_dict['test_IDs'] = [int(item) for item in arguments.test_IDs.split(',')]
+    else:
+        train_dict['test_IDs'] = arguments.test_IDs
+    if arguments.early_callback is None:
+        train_dict['early_callback'] = None
+    else:
+        train_dict['early_callback'] = arguments.early_callback.split(',')
+
     train_dict['evaluation_metric'] = arguments.evaluation_metric
 
     if train_dict['train_selection'] == 'random' or train_dict['train_selection'] == 'retrain_random':
@@ -429,23 +554,80 @@ def update_dicts(model_dict, train_dict, arguments):
     elif train_dict['train_selection'] == 'k=g' or train_dict['train_selection'] == 'retrain_k=g':
         train_dict['conv_const'] = './../data/maps_selected_kappa_equal_gamma.csv'
         train_dict['list_IDs_directory'] = './../data/ID_maps_selected_kappa_equal_gamma.dat'
+    elif train_dict['train_selection'] == 'repeated_kg' or train_dict['train_selection'] == 'retrain_repeated_kg':
+        train_dict['conv_const'] = './../data/all_maps_meta_kgs.csv'
+        train_dict['list_IDs_directory'] = './../data/gd0_IDs.dat'
 
     return model_dict, train_dict
 
 
-def read_all_maps(n_batches):
-    data_dict = {}
+def h5_file_reader(path):
+    with h5py.File(path, "r") as f:
+        # Print all root level object names (aka keys)
+        # these can be group or dataset names
+        print("Keys: %s" % f.keys())
+        # get first object name/key; may or may NOT be a group
+        a_group_key = list(f.keys())[0]
 
-    for index in range(n_batches):
-        path = directory_bulk + 'all_maps_batch' + str(index) + '.pkl'
-        data_dict_tmp = pkl.load(open(path, "rb"))
-        data_dict = {**data_dict, **data_dict_tmp}
+        # get the object type for a_group_key: usually group or dataset
+        print(type(f[a_group_key]))
+
+        # If a_group_key is a group name,
+        # this gets the object names in the group and returns as a list
+        data = list(f[a_group_key])
+
+        # If a_group_key is a dataset name,
+        # this gets the dataset values and returns as a list
+        maps = list(f['maps'])
+        IDs = list(f['IDs'])
+        # preferred methods to get dataset values:
+        ds_obj = f[a_group_key]  # returns as a h5py dataset object
+        ds_arr = f[a_group_key][()]
+    return maps, IDs
+
+
+def masking_arrays(raw_array, raw_array_maxs=482.816, raw_array_mins=-482.797, MAX_ARRAY_SIZE=244784):
+    tmp = np.concatenate((raw_array[:, 0].reshape((len(raw_array), 1)), raw_array[:, 1].reshape((len(raw_array), 1))),
+                         axis=1)
+    output = NormalizeData(tmp, data_max=raw_array_maxs, data_min=raw_array_mins)
+    return pad_sequences([output], maxlen=MAX_ARRAY_SIZE, padding="post", dtype="float32")
+
+
+def read_all_maps(n_batches):
+    # data_dict = {}
+    #
+    # for index in range(n_batches):
+    #     path = directory_bulk + 'all_maps_batch' + str(index) + '.pkl'
+    #     data_dict_tmp = pkl.load(open(path, "rb"))
+    #     data_dict = {**data_dict, **data_dict_tmp}
+    maps, IDs = h5_file_reader(directory_bulk + '4096pix_maps.h5')
+    maps = np.asarray(maps)
+    IDs = np.asarray(IDs)
+    data_dict = dict(zip(IDs, maps))
     return data_dict
+
+
+# def read_all_data():
+#     data_dict = {}
+#
+#     for index in range(11):
+#         path = './../../../fred/oz108/skhakpas/all_maps_batch' + str(index) + '.pkl'
+#         data_dict_tmp = pkl.load(open(path, "rb"))
+#         data_dict = {**data_dict, **data_dict_tmp}
+#
+#     return data_dict
 
 
 def read_all_lens_pos():
     all_lens_pos = pkl.load(open(len_pos_directory, "rb"))
     return all_lens_pos
+
+
+def process_read_lens_pos(ID, masking=True):
+    lens_pos = np.loadtxt(map_direc + str(ID) + "/lens_pos.dat")
+    if masking:
+        lens_pos = masking_arrays(lens_pos)
+    return lens_pos[0]
 
 
 def scale_images(images, new_shape=(1000, 1000, 1)):
@@ -456,3 +638,79 @@ def scale_images(images, new_shape=(1000, 1000, 1)):
         # store
         images_list.append(new_image)
     return np.asarray(images_list)
+
+
+def check_shapes(x, y):
+    if x.shape == y.shape:
+        return True
+    else:
+        return False
+
+
+def split_data(n_maps, batch_size, test_selection, n_test_set):
+    """
+        Splits a dataset of maps into training, validation, and test indices based on predefined fractions.
+
+        Parameters:
+        -----------
+        n_maps : int
+            Total number of maps available in the dataset.
+        batch_size : int
+            The batch size used for training; ensures that training and validation sets have at least `batch_size` samples.
+        test_selection : str
+            Specifies the method for selecting test samples. Options include:
+            - 'sorted': Selects a sorted subset of test samples.
+            - 'random': Randomly selects test samples.
+            - 'given': Uses a predefined set of test samples.
+            - Other values default to a proportion-based test split.
+        n_test_set : int
+            Number of test samples to be selected when applicable.
+
+        Returns:
+        --------
+        indx1 : numpy.ndarray
+            Indices for the training set (default: first 80% of the dataset).
+        indx2 : numpy.ndarray
+            Indices for the validation set (default: next 10% of the dataset).
+        indx3 : numpy.ndarray
+            Indices for the test set (default: last 10% of the dataset, adjusted based on `test_selection`).
+
+        Notes:
+        ------
+        - The dataset is split into:
+          - 80% training (`indx1`).
+          - 10% validation (`indx2`).
+          - 10% test (`indx3`), with adjustments based on `test_selection` and `n_test_set`.
+        - If `batch_size` is larger than the training or validation set size, the function adjusts `indx2` and `indx3` accordingly.
+        - If `n_test_set` is greater than the available test samples, the function dynamically adjusts the test fraction.
+        - The function exits with an error message if `batch_size` exceeds the total sample size.
+        """
+    indx1 = np.arange(int(0.8 * n_maps), dtype=int)
+    indx2 = np.arange(int(0.8 * n_maps), int(0.9 * n_maps))
+    indx3 = np.arange(int(0.9 * n_maps), n_maps)
+    fract = batch_size / n_maps
+    if len(indx1) < batch_size:
+        print('Batch size should not be larger than the sample size.')
+        sys.exit()
+    if len(indx2) < batch_size:
+        indx2 = np.arange(int((1 - (2 * fract)) * n_maps) - 1, int((1 - fract) * n_maps) + 1)
+    if test_selection == 'sorted' or test_selection == 'random' or test_selection == 'given':
+        if n_test_set > len(indx3):
+            fract2 = n_test_set / n_maps
+            indx3 = np.arange(int((1 - fract2) * n_maps) - 1, n_maps)
+    else:
+        if len(indx3) < batch_size:
+            indx3 = np.arange(int((1 - fract) * n_maps) - 1, n_maps)
+
+    return indx1, indx2, indx3
+
+
+def convert_loss_labels(label):
+    if label == 'tweedie':
+        return 'tweedie_loglikelihood', loss_functions[label]
+    elif label == 'lc_loss':
+        return 'lc_loglikelihood', loss_functions[label]
+    elif label == 'custom':
+        return 'custom_loglikelihood', loss_functions[label]
+    else:
+        return None, None

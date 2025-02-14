@@ -1,8 +1,8 @@
 from my_models import model_design_2l, model_design_3l, model_design_Unet, \
     basic_unet, model_design_Unet2, model_design_Unet3, model_design_Unet_NF, model_design_Unet_resnet, \
-    model_design_Unet_resnet2, Unet_sobel_edges1, Unet_resnet_3param, VAE, \
+    model_design_Unet_resnet2, Unet_sobel_edges1, Unet_resnet_3param, VAE, VAE2, \
     Unet_sobel_edges2, Unet_take_two_channels_separately, Unet_lens_pos, \
-    kgs_to_bt, kgs_lens_pos_to_bt, bt_to_kgs
+    kgs_to_bt, kgs_lens_pos_to_bt, bt_to_kgs, model_design_Unet2_highres, Unet2_lens_pos_masked
 from loss_functions import tweedie_loss_func, \
     lc_loss_func, \
     custom_loss_func
@@ -52,6 +52,7 @@ loss_functions = {'binary_crossentropy': keras.losses.BinaryCrossentropy(from_lo
                   'lc_loss': lc_loss_func('mse', 1),
                   'huber': tf.keras.losses.Huber(delta=1),
                   'custom': custom_loss_func()}
+
 optimizers = {'adam': keras.optimizers.Adam,
               'sgd': keras.optimizers.SGD,
               'adamax': keras.optimizers.Adamax,
@@ -109,6 +110,38 @@ model_parameters = {
     },
     'Unet2': {
         'model_function': model_design_Unet2,
+        'input_side': 1000,
+        'input_side2': None,
+        'input_output_format': 'norm_maps',
+        'default_loss': loss_functions['custom'],
+        'default_optimizer': optimizers['adam'],
+        'n_channels': 1,
+        'crop_scale': 1,
+        'include_lens_pos': False,
+        'include_map_units': False,
+        'flow_label': None,
+        'n_flows': 4,
+        'z_size': 625,
+        'first_down_sampling': 5
+    },
+    'Unet2_lens_pos_masked':{
+        'model_function': Unet2_lens_pos_masked,
+        'input_side': 1000,
+        'input_side2': 244784,
+        'input_output_format': 'norm_maps',
+        'default_loss': loss_functions['custom'],
+        'default_optimizer': optimizers['adam'],
+        'n_channels': 1,
+        'crop_scale': 1,
+        'include_lens_pos': True,
+        'include_map_units': False,
+        'flow_label': None,
+        'n_flows': 4,
+        'z_size': 625,
+        'first_down_sampling': 5
+    },
+    'Unet2_highres': {
+        'model_function': model_design_Unet2_highres,
         'input_side': 1000,
         'input_side2': None,
         'input_output_format': 'norm_maps',
@@ -251,6 +284,22 @@ model_parameters = {
         'z_size': 625,
         'first_down_sampling': 5
     },
+    'VAE_lens_pos': {
+            'model_function': VAE2,
+            'input_side': 1000,
+            'input_side2': 244784,
+            'input_output_format': 'norm_maps',
+            'default_loss': loss_functions['binary_crossentropy'],
+            'default_optimizer': optimizers['adam'],
+            'n_channels': 1,
+            'crop_scale': 1,
+            'include_lens_pos': False,
+            'include_map_units': False,
+            'flow_label': None,
+            'n_flows': 4,
+            'z_size': 625,
+            'first_down_sampling': 5
+    },
     'Unet_resnet_3param': {
         'model_function': Unet_resnet_3param,
         'input_side': 1000,
@@ -349,7 +398,8 @@ model_parameters = {
     }
 }
 
-running_params = {'dim': 10000,
+running_params = {'input_size': 10000,
+                  'output_size': 1000,
                   'batch_size': 8,
                   'n_epochs': 100,
                   'res_scale': 10,
@@ -359,10 +409,11 @@ running_params = {'dim': 10000,
                   'conv_const': './../data/maps_selected_kappa_equal_gamma.csv',
                   'sample_size': 12342,
                   'test_selection': 'random',
-                  'train_selection': 'random',
+                  'train_selection': 'random', #Options are: random, retrain_random, k=g, retrain_k==g, repeated_kg, retrain_repeated_kg
                   'output_dir': './../../../fred/oz108/skhakpas/results/',
                   'list_IDs_directory': './../data/ID_maps_selected_kappa_equal_gamma.dat',
-                  'saved_model_path': None,
+                  'saved_model_path': './../../../fred/oz108/skhakpas/results/23-12-14-01-12-07/model_10000_8_0.0001',
+                  'saved_model_format': 'json',
                   'saved_LSR_path': './../../../fred/oz108/skhakpas/results/23-12-14-01-12-07/LSR_23-12-14-01-12-07_samplesize_12342.npy',
                   'mode': 'train_test',
                   'n_test_set': 10,

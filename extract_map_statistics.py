@@ -4,6 +4,10 @@ import pandas as pd
 from tqdm import tqdm
 from convolver import *
 import pickle as pkl
+from multiprocessing import Pool
+import multiprocessing as mp
+from prepare_maps import process_get_maps_min_max, process_read_lens_pos
+import h5py
 
 
 def parse_options():
@@ -19,11 +23,17 @@ def parse_options():
     parser.add_argument('-list_IDs_directory', action='store',
                         default='./../data/all_all_IDs_list.dat',
                         help='Specify the directory where the list of map IDs is stored.')
+    parser.add_argument('-input_map_size', action='store',
+                        default=10000,
+                        help='size of each side the original maps in pixels.')
+    parser.add_argument('-output_map_size', action='store',
+                        default=1000,
+                        help='size of each side the maps with reduced resolution in pixels.')
     parser.add_argument('-test_set_size', action='store',
                         default=10,
                         help='Size of the test set.')
     parser.add_argument('-stat', action='store',
-                        default=True,
+                        default=False,
                         help='Do you want to save min, max, mean, and median of all maps?')
     parser.add_argument('-conv_stat', action='store',
                         default=False,
@@ -48,13 +58,15 @@ args = parse_options()
 
 # Datasets
 partition = {}
-ls_maps = np.loadtxt(args.list_IDs_directory, dtype=int)
+ls_maps = np.loadtxt(args.list_IDs_directory, usecols=(0,), dtype=int)
 random.seed(10)
 shuffler = np.random.permutation(len(ls_maps))
 ls_maps = ls_maps[shuffler]
 n_maps = len(ls_maps)
 
 map_direc = args.directory
+input_map_size = int(args.input_map_size)
+output_map_size = int(args.output_map_size)
 n_test_set = int(args.test_set_size)
 stat = args.stat
 save_lens_pos = args.save_lens_pos
@@ -62,73 +74,52 @@ conv_stat = args.conv_stat
 conv_rsrc = float(args.conv_rsrc)
 test_set_index = random.sample(list(ls_maps), n_test_set)
 output_direc = args.output_directory
-mins = []
-maxs = []
-log_mins = []
-log_maxs = []
 
-mag_avg = []
-ray_avg = []
-cv = convolver(rsrc=conv_rsrc)
 
-mins_conv = []
-maxs_conv = []
-log_conv_mins = []
-log_conv_maxs = []
-lens_poss = {}
-ks = []
-gs = []
-ss = []
-# mag_avg_conv = []
-# ray_avg_conv = []
+num_cores = mp.cpu_count()
+print('Number of cores= %i'%num_cores)
+maps_lens_pos = {}
+maps_lens_pos_values = []
+maps_stat_values = []
 
-for ID in tqdm(ls_maps):
+if len(ls_maps) % num_cores == 0:
+    num_processes = int(len(ls_maps) / num_cores)
+else:
+    num_processes = int(len(ls_maps) / num_cores) + 1
 
-    f1 = open(map_direc + str(ID) + "/map.bin", "rb")
-    map_tmp = np.fromfile(f1, 'i', -1, "")
-    maps = (np.reshape(map_tmp, (-1, 10000)))
-    f2 = open(map_direc + str(ID) + "/mapmeta.dat", "r")
-    lines = f2.readlines()
-    mag_convertor = float(lines[0].split(' ')[0])
-    k, g, s = float(lines[3].split(' ')[0]), float(lines[3].split(' ')[1]), float(lines[3].split(' ')[2])
-    maps = maps * mag_convertor
-    if save_lens_pos:
-        lens_pos = np.loadtxt(map_direc + str(ID) + "/lens_pos.dat")
+for n in range(num_processes):
+    print('Batch %i/%i of %i maps:' % (n, num_processes, num_cores))
+    if n == num_processes - 1:
+        list_ID_tmp = ls_maps[n * num_cores:]
+    else:
+        list_ID_tmp = ls_maps[n * num_cores:(n + 1) * num_cores]
     if stat:
-        mins.append(np.min(maps))
-        maxs.append(np.max(maps))
-        ks.append(k)
-        gs.append(g)
-        ss.append(s)
-        # log_mins.append(np.min(maps))
-        # log_maxs.append(np.max(maps))
+        with Pool(processes=num_cores) as pool:
+            maps_stat_tmp = pool.map(process_get_maps_min_max, [[ID, input_map_size, output_map_size] for i, ID in enumerate(list_ID_tmp)])
+        maps_stat_values += maps_stat_tmp
     if save_lens_pos:
-        lens_poss[ID] = lens_pos
+        with Pool(processes=num_cores) as pool:
+            maps_lens_pos_tmp = pool.map(process_read_lens_pos, [map_direc+str(ID) for ID in list_ID_tmp])
 
-    mag_avg.append(float(lines[0].split(' ')[0]))
-    ray_avg.append(float(lines[0].split(' ')[1].split('/')[0]))
+        for i, ID in enumerate(list_ID_tmp):
+            maps_lens_pos[ID] = maps_lens_pos_tmp[i]
 
-    if conv_stat:
-        cv.conv_map(maps)
-        conv_map_tmp = cv.magcon
-        mins_conv.append(np.min(conv_map_tmp))
-        maxs_conv.append(np.max(conv_map_tmp))
 
 if stat:
+    maps_stat_values = np.asarray(maps_stat_values)
     df = pd.DataFrame({'ID': ls_maps,
-                       'kappa': ks,
-                       'gamma': gs,
-                       's': ss,
-                       'min': mins,
-                       'max': maxs,
-                       'mag_avg': mag_avg,
-                       'ray_avg': ray_avg})
-    df.to_csv(output_direc + 'all_all_maps_meta_kgs.csv')
+                       'mag_min': maps_stat_values[:, 0],
+                       'mag_max': maps_stat_values[:, 1],
+                       'log_mag_min': maps_stat_values[:, 2],
+                       'log_mag_max': maps_stat_values[:, 3]})
+    df.to_csv(output_direc + '4096pixel_maps_meta_kgs.csv')
 
 if save_lens_pos:
-    f = open(output_direc + 'all_maps_lens_pos.pkl', 'wb')
-    pkl.dump(lens_poss, f)
-
-if conv_stat:
-    df = pd.DataFrame({'ID': ls_maps, 'min': mins_conv, 'max': maxs_conv, 'mag_avg': mag_avg, 'ray_avg': ray_avg})
-    df.to_csv(output_direc + 'all_conv_maps_meta_rsrc_' + str(conv_rsrc) + '.csv')
+    # lens_poss = dict(zip(ls_maps, maps_lens_pos_values))
+    f = open(output_direc + '4096pixel_maps_lens_pos.pkl', 'wb')
+    pkl.dump(maps_lens_pos, f)
+    # with h5py.File(output_direc + '4096pix_maps_lens_pos.h5', "w") as f:
+    #     # Create a compressed dataset
+    #     f.create_dataset("lens_pos", data=maps_lens_pos_values, compression="gzip", compression_opts=9)
+    #     f.create_dataset("IDs", data=ls_maps, compression="gzip", compression_opts=9)
+    #

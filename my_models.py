@@ -1,4 +1,3 @@
-
 from tensorflow import keras
 from keras import layers
 from tensorflow.keras.layers import Flatten, Reshape, Dense, Concatenate
@@ -12,6 +11,7 @@ from keras.layers import Input, concatenate, Conv2D, MaxPooling2D, Conv2DTranspo
     BatchNormalization
 import sys
 from keras.callbacks import EarlyStopping, ModelCheckpoint
+
 # from keras.saving import saving_api
 
 
@@ -19,6 +19,8 @@ sys.path += ['..']
 path_to_module = '~/codes/normalizing_flows/normalizing_flows/'
 sys.path.append(path_to_module)
 from codes.normalizing_flows.normalizing_flows.layers import FlowLayer
+
+
 # from codes.normalizing_flows.normalizing_flows.flows.affine import Planar, Radial
 # from codes.normalizing_flows.normalizing_flows.flows import flow
 # from codes.normalizing_flows.normalizing_flows.flows.sylvester import TriangularSylvester
@@ -26,7 +28,8 @@ from codes.normalizing_flows.normalizing_flows.layers import FlowLayer
 
 
 # Design model
-def model_design_2l(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=5, af='relu'):
+def model_design_2l(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                    first_down_sampling=5, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, 1))
 
     x = layers.Conv2D(128, (5, 5), activation=af,
@@ -48,7 +51,8 @@ def model_design_2l(input_side, input2=None, n_channels=1, z_size=625, flow_labe
     return autoencoder_model
 
 
-def model_design_3l(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=5, af='relu'):
+def model_design_3l(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                    first_down_sampling=5, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, 1))
 
     x = layers.Conv2D(32, (4, 4), activation=af,
@@ -82,7 +86,8 @@ def model_design_3l(input_side, input2=None, n_channels=1, z_size=625, flow_labe
     return autoencoder_model
 
 
-def model_design_Unet(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2, af='relu'):
+def model_design_Unet(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                      first_down_sampling=2, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
     x = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(input_img)
@@ -136,7 +141,8 @@ def model_design_Unet(input_side, input2=None, n_channels=1, z_size=625, flow_la
     return autoencoder_model
 
 
-def Unet_lens_pos(input_side1, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=5, af='relu'):
+def Unet_lens_pos(input_side1, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=5,
+                  af='relu'):
     input_img1 = keras.Input(shape=(input_side1, input_side1, n_channels))
     input_img2 = keras.Input(shape=(input2, input2, n_channels))
 
@@ -193,7 +199,8 @@ def Unet_lens_pos(input_side1, input2=None, n_channels=1, z_size=625, flow_label
     return autoencoder_model
 
 
-def Unet_take_two_channels_separately(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2, af='relu'):
+def Unet_take_two_channels_separately(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                                      first_down_sampling=2, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
     input_img2 = keras.Input(shape=(input_side, input_side, n_channels))
 
@@ -250,7 +257,8 @@ def Unet_take_two_channels_separately(input_side, input2=None, n_channels=1, z_s
     return autoencoder_model
 
 
-def Unet_sobel_edges1(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2, af='relu'):
+def Unet_sobel_edges1(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                      first_down_sampling=2, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
     grad_components = tf.image.sobel_edges(input_img)
@@ -311,7 +319,8 @@ def Unet_sobel_edges1(input_side, input2=None, n_channels=1, z_size=625, flow_la
     return autoencoder_model
 
 
-def Unet_sobel_edges2(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2, af='relu'):
+def Unet_sobel_edges2(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                      first_down_sampling=2, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
     grad_components = tf.image.sobel_edges(input_img)
@@ -382,7 +391,8 @@ def Unet_sobel_edges2(input_side, input2=None, n_channels=1, z_size=625, flow_la
     return autoencoder_model
 
 
-def model_design_Unet_resnet(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2, af='relu'):
+def model_design_Unet_resnet(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                             first_down_sampling=2, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
     bl1_conv1 = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(input_img)
@@ -450,7 +460,75 @@ def model_design_Unet_resnet(input_side, input2=None, n_channels=1, z_size=625, 
     return autoencoder_model
 
 
-def Unet_resnet_3param(input_side1, input2, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2, af='relu'):
+def Unet2_lens_pos_masked(input_side1=1000,
+                          input2=244784,
+                          n_channels=1,
+                          z_size=1000,
+                          flow_label=None,
+                          n_flows=5,
+                          first_down_sampling=5,
+                          af='relu'):
+    # ======= Encoder =======
+    ## Image Encoder (CNN)
+    image_input = keras.Input(shape=(input_side1, input_side1, 1), name="image_input")
+    x = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(image_input)
+    x = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.MaxPooling2D((first_down_sampling, first_down_sampling))(x)
+
+    x = layers.Conv2D(64, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.Conv2D(64, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.MaxPooling2D((2, 2))(x)
+
+    x = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.MaxPooling2D((2, 2))(x)
+
+    x = layers.Conv2D(1, (2, 2), activation=af, strides=1, padding="same")(x)
+    x = layers.Flatten()(x)
+    # x = layers.Dense(128, activation="relu")(x)
+
+    ## Variable-Length Array Encoder
+    array_input = keras.Input(shape=(input2, 2), name="array_input")
+
+    # Mask the padded values (assumed 0 padding)
+    masked_array = layers.Masking(mask_value=0.0)(array_input)  # Ignore zeros
+
+    # LSTM/GRU handles variable-length arrays
+    # y = layers.LSTM(2500, activation=af, input_shape=(None, input2, 2), return_sequences=False)(
+    #     masked_array)
+    y = layers.Dense(1, activation=af)(masked_array)
+    y = layers.Flatten()(y)
+
+    # Merge Image and Array branches
+    merged = layers.Concatenate()([x, y])
+    merged = layers.Dense(z_size, activation=af)(merged)  # Ensure fixed shape
+    merged = layers.Dense(2500, activation=af)(merged)  # Ensure fixed shape
+
+    d = layers.Reshape((50, 50, 1))(merged)
+    encoded = layers.Conv2D(1, (4, 4), activation=af, strides=1, padding="same")(d)
+
+    # ======= Decoder =======
+
+    d = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(encoded)
+    d = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.UpSampling2D((2, 2))(d)
+
+    d = layers.Conv2DTranspose(64, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.Conv2DTranspose(64, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.UpSampling2D((2, 2))(d)
+
+    d = layers.Conv2DTranspose(32, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.Conv2DTranspose(32, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.UpSampling2D((first_down_sampling, first_down_sampling))(d)
+
+    d = layers.Conv2DTranspose(1, (1, 1), activation='sigmoid', padding="same")(d)
+
+    AD_model = keras.Model([image_input, array_input], d, name="Unet2_lens_pos")
+    return AD_model
+
+
+def Unet_resnet_3param(input_side1, input2, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2,
+                       af='relu'):
     input_img1 = keras.Input(shape=(input_side1, input_side1, n_channels))
     input_img2 = keras.Input(shape=(input2,))
 
@@ -523,7 +601,8 @@ def Unet_resnet_3param(input_side1, input2, n_channels=1, z_size=625, flow_label
     return autoencoder_model
 
 
-def model_design_Unet_resnet2(input_side, input2=None, n_channels=1, z_size=None, flow_label=None, n_flows=None, first_down_sampling=2, af='relu'):
+def model_design_Unet_resnet2(input_side, input2=None, n_channels=1, z_size=None, flow_label=None, n_flows=None,
+                              first_down_sampling=2, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
     bl1_conv1 = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(input_img)
@@ -599,7 +678,8 @@ def model_design_Unet_resnet2(input_side, input2=None, n_channels=1, z_size=None
     return autoencoder_model
 
 
-def model_design_Unet2(input_side, input2=None, n_channels=1, z_size=None, flow_label=None, n_flows=None, first_down_sampling=5, af='relu'):
+def model_design_Unet2(input_side, input2=None, n_channels=1, z_size=None, flow_label=None, n_flows=None,
+                       first_down_sampling=5, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
     x = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(input_img)
@@ -653,7 +733,67 @@ def model_design_Unet2(input_side, input2=None, n_channels=1, z_size=None, flow_
     return autoencoder_model
 
 
-def model_design_Unet3(input_side, input2=None, n_channels=1, z_size=None, flow_label=None, n_flows=None, first_down_sampling=5, af='relu'):
+def model_design_Unet2_highres(input_side, n_channels=1, first_down_sampling=5):
+    input_img = keras.Input(shape=(input_side, input_side, n_channels))
+
+    x = layers.Conv2D(32, (3, 3), activation='relu', strides=1, padding="same")(input_img)
+    x = layers.Conv2D(32, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.Conv2D(32, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.MaxPooling2D((first_down_sampling, first_down_sampling))(x)
+
+    x = layers.Conv2D(64, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.Conv2D(64, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.Conv2D(64, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.MaxPooling2D((2, 2))(x)
+
+    x = layers.Conv2D(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.Conv2D(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.Conv2D(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.MaxPooling2D((2, 2))(x)
+
+    # x = layers.Conv2D(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.Conv2D(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # # x = layers.Conv2D(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.MaxPooling2D((5, 5))(x)
+
+    x = layers.Conv2D(1, (2, 2), activation='relu', strides=1, padding="same")(x)
+
+    # encoded = x
+
+    x = layers.Conv2DTranspose(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.Conv2DTranspose(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.Conv2DTranspose(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.UpSampling2D((5, 5))(x)
+
+    x = layers.Conv2DTranspose(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.Conv2DTranspose(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.Conv2DTranspose(128, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.UpSampling2D((2, 2))(x)
+
+    x = layers.Conv2DTranspose(64, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.Conv2DTranspose(64, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.Conv2DTranspose(64, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.UpSampling2D((2, 2))(x)
+
+    x = layers.Conv2DTranspose(64, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.Conv2DTranspose(64, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.Conv2DTranspose(64, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.UpSampling2D((2, 2))(x)
+
+    x = layers.Conv2DTranspose(32, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.Conv2DTranspose(32, (3, 3), activation='relu', strides=1, padding="same")(x)
+    # x = layers.Conv2DTranspose(32, (3, 3), activation='relu', strides=1, padding="same")(x)
+    x = layers.UpSampling2D((first_down_sampling, first_down_sampling))(x)
+
+    decoded = layers.Conv2DTranspose(1, (1, 1), activation='sigmoid', padding="same")(x)
+
+    autoencoder_model = keras.Model(input_img, decoded)
+
+    return autoencoder_model
+
+
+def model_design_Unet3(input_side, input2=None, n_channels=1, z_size=None, flow_label=None, n_flows=None,
+                       first_down_sampling=5, af='relu'):
     input_img = keras.Input(shape=(input_side, input_side, n_channels))
 
     x = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(input_img)
@@ -685,7 +825,8 @@ def model_design_Unet3(input_side, input2=None, n_channels=1, z_size=None, flow_
     return autoencoder_model
 
 
-def basic_unet(input_side, input2=None, n_channels=1, z_size=None, flow_label=None, n_flows=None, first_down_sampling=2, af='relu'):
+def basic_unet(input_side, input2=None, n_channels=1, z_size=None, flow_label=None, n_flows=None, first_down_sampling=2,
+               af='relu'):
     inputs = Input((input_side, input_side, n_channels))
     conv1 = Conv2D(16, (3, 3), activation=af, padding='same')(inputs)
     # conv1 = BatchNormalization()(conv1)
@@ -746,7 +887,8 @@ def basic_unet(input_side, input2=None, n_channels=1, z_size=None, flow_label=No
     return model
 
 
-def model_design_Unet_NF(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=5, af='relu'):
+def model_design_Unet_NF(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                         first_down_sampling=5, af='relu'):
     if flow_label is None:
         flow_func = None
     elif flow_label == 'planar':
@@ -830,7 +972,8 @@ class Sampling(layers.Layer):
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 
-def vae_encoder(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2, af='relu'):
+def vae_encoder(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2,
+                af='relu'):
     encoder_inputs = keras.Input(shape=(input_side, input_side, n_channels))
 
     bl1_conv1 = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(encoder_inputs)
@@ -872,7 +1015,8 @@ def vae_encoder(input_side, input2=None, n_channels=1, z_size=625, flow_label=No
     return encoder
 
 
-def vae_encoder2(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=5, af='relu'):
+def vae_encoder2(input_side, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=5,
+                 af='relu'):
     encoder_inputs = keras.Input(shape=(input_side, input_side, n_channels))
 
     bl1_conv1 = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(encoder_inputs)
@@ -918,7 +1062,57 @@ def vae_encoder2(input_side, input2=None, n_channels=1, z_size=625, flow_label=N
     return encoder
 
 
-def vae_encoder_3params(input_side, input2=3, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2, af='relu'):
+def vae_encoder_lens_pos(input_side1=1000,
+                         input_side2_max=244784,
+                         n_channels=1,
+                         z_size=625,
+                         first_down_sampling=5,
+                         af='relu'):
+    # ======= Encoder =======
+    ## Image Encoder (CNN)
+    image_input = keras.Input(shape=(input_side1, input_side1, 1), name="image_input")
+    x = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(image_input)
+    x = layers.Conv2D(32, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.MaxPooling2D((first_down_sampling, first_down_sampling))(x)
+
+    x = layers.Conv2D(64, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.Conv2D(64, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.MaxPooling2D((2, 2))(x)
+
+    x = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.Conv2D(128, (3, 3), activation=af, strides=1, padding="same")(x)
+    x = layers.MaxPooling2D((2, 2))(x)
+
+    x = layers.Conv2D(1, (2, 2), activation=af, strides=1, padding="same")(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(128, activation="relu")(x)
+
+    ## Variable-Length Array Encoder
+    array_input = keras.Input(shape=(input_side2_max, 2), name="array_input")
+
+    # Mask the padded values (assumed 0 padding)
+    masked_array = layers.Masking(mask_value=0.0)(array_input)  # Ignore zeros
+
+    # LSTM/GRU handles variable-length arrays
+    y = layers.LSTM(64, activation='relu', input_shape=(None, input_side2_max, 2), return_sequences=False)(masked_array)
+    y = layers.Dense(128, activation="relu")(y)
+
+    # Merge Image and Array branches
+    merged = layers.Concatenate()([x, y])
+    merged = layers.Dense(256, activation="relu")(merged)  # Ensure fixed shape
+
+    z_mean = layers.Dense(z_size, name="z_mean")(merged)
+    z_log_var = layers.Dense(z_size, name="z_log_var")(merged)
+
+    z = layers.Lambda(sampling, output_shape=(z_size,), name="z")([z_mean, z_log_var])
+    encoder = keras.Model([image_input, array_input],
+                          [z, z_mean, z_log_var],
+                          name="encoder")
+    return encoder
+
+
+def vae_encoder_3params(input_side, input2=3, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                        first_down_sampling=2, af='relu'):
     encoder_inputs1 = keras.Input(shape=(input_side, input_side, n_channels))
     encoder_inputs2 = keras.Input(shape=(input2,))
 
@@ -966,9 +1160,10 @@ def vae_encoder_3params(input_side, input2=3, n_channels=1, z_size=625, flow_lab
     return encoder
 
 
-def vae_decoder(input_side=None, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=5, af='relu'):
+def vae_decoder(input_side=None, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                first_down_sampling=5, af='relu'):
     latent_inputs = keras.Input(shape=(z_size,))
-    z_dim = np.sqrt(z_size)
+    z_dim = int(np.sqrt(z_size))
     x = layers.Dense(z_dim ** 2, activation="relu")(latent_inputs)
     x = layers.Reshape((z_dim, z_dim, 1))(x)
 
@@ -1005,13 +1200,40 @@ def vae_decoder(input_side=None, input2=None, n_channels=1, z_size=625, flow_lab
     return decoder
 
 
-def vae_decoder2(input_side=None, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5, first_down_sampling=2, af='relu'):
+def vae_decoder_lens_pos(n_channels=1,
+                         z_size=625,
+                         first_down_sampling=5,
+                         af='relu'):
+    # ======= Decoder =======
+    decoder_input = keras.Input(shape=(z_size,), name="decoder_input")
+    d = layers.Dense(2500, activation="relu")(decoder_input)  # 1000x1000 flattened
+    d = layers.Reshape((50, 50, 1))(d)
+
+    d = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.UpSampling2D((2, 2))(d)
+
+    d = layers.Conv2DTranspose(64, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.Conv2DTranspose(64, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.UpSampling2D((2, 2))(d)
+
+    d = layers.Conv2DTranspose(32, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.Conv2DTranspose(32, (3, 3), activation=af, strides=1, padding="same")(d)
+    d = layers.UpSampling2D((first_down_sampling, first_down_sampling))(d)
+
+    d = layers.Conv2DTranspose(1, (1, 1), activation='sigmoid', padding="same")(d)
+
+    decoder = keras.Model(decoder_input, d, name="decoder")
+    return decoder
+
+
+def vae_decoder2(input_side=None, input2=None, n_channels=1, z_size=625, flow_label=None, n_flows=5,
+                 first_down_sampling=2, af='relu'):
     latent_inputs = keras.Input(shape=(z_size,))
 
     x = layers.Dense(z_size, activation="relu")(latent_inputs)
     x = layers.Dense(2500, activation="relu")(x)
     x = layers.Reshape((50, 50, 1))(x)
-
 
     bl6_conv1 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(x)
     # bl6_conv2 = layers.Conv2DTranspose(128, (3, 3), activation=af, strides=1, padding="same")(bl6_conv1)
@@ -1039,10 +1261,10 @@ def vae_decoder2(input_side=None, input2=None, n_channels=1, z_size=625, flow_la
     return decoder
 
 
-class VAE(keras.Model):
+class VAE2(keras.Model):
     def __init__(self, encoder, decoder,
                  design='vae',
-                 input_shape=(1000, 1000, 1),
+                 # input_shape=(1000, 1000, 1),
                  **kwargs):
         super().__init__(**kwargs)
         self.encoder = encoder
@@ -1053,6 +1275,107 @@ class VAE(keras.Model):
             name="reconstruction_loss"
         )
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
+        # self.input_shape = input_shape
+
+    @property
+    def metrics(self):
+        return [
+            self.total_loss_tracker,
+            self.reconstruction_loss_tracker,
+            self.kl_loss_tracker,
+        ]
+
+    def call(self, inputs, training=True):
+        """
+    This method is called when the model is being evaluated or used for inference.
+
+    Args:
+      inputs: The input tensor to the model.
+      training: A boolean flag indicating whether or not the model is being trained.
+
+    Returns:
+      The output tensor from the model.
+    """
+
+        # The `call()` method should first check to see if the model is being trained.
+        if training:
+            # If the model is being trained, then the `call()` method should call the
+            # `train_step()` method.
+            return self.train_step(inputs)
+        else:
+            # If the model is not being trained, then the `call()` method should call the
+            # `inference()` method.
+            return self.inference(inputs)
+
+    def train_step(self, data):
+        with tf.GradientTape() as tape:
+            z, z_mean, z_log_var = self.encoder(data)
+            target = data[0]
+            reconstruction = self.decoder(z)
+            reconstruction_loss = tf.reduce_mean(
+                keras.losses.binary_crossentropy(target, reconstruction)) / 1000000
+            kl_loss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+            kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss, axis=1))
+            total_loss = reconstruction_loss + kl_loss
+        grads = tape.gradient(total_loss, self.trainable_weights)
+        self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
+        self.total_loss_tracker.update_state(total_loss)
+        self.reconstruction_loss_tracker.update_state(reconstruction_loss)
+        self.kl_loss_tracker.update_state(kl_loss)
+        return {
+            "loss": self.total_loss_tracker.result(),
+            "reconstruction_loss": self.reconstruction_loss_tracker.result(),
+            "kl_loss": self.kl_loss_tracker.result(),
+        }
+
+    def inference(self, inputs):
+        """
+      Performs inference (prediction) using the model.
+
+      Args:
+          inputs: The input tensor to the model.
+
+      Returns:
+          The output tensor from the model.
+      """
+        z, _, _ = self.encoder(inputs)
+        reconstruction = self.decoder(z)
+        return reconstruction
+
+    def summary(self):
+        x1 = keras.Input(shape=(1000, 1000, 1), name="input_layer1")
+        x2 = keras.Input(shape=(244784, 2), name="input_layer2")
+        self.model = keras.Model(inputs=[x1, x2], outputs=self.call([x1, x2]))
+        return self.model.summary()
+
+    def save(self, filepath):
+        tf.saved_model.save(self.model, filepath)
+
+
+# Reparameterization Trick
+def sampling(args):
+    z_mean, z_log_var = args
+    batch = tf.shape(z_mean)[0]
+    dim = tf.shape(z_mean)[1]
+    epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
+    return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+
+
+class VAE(keras.Model):
+    def __init__(self, encoder, decoder,
+                 design='vae',
+                 # input_shape=(1000, 1000, 1),
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.encoder = encoder
+        self.decoder = decoder
+        self.design = design
+        self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
+        self.reconstruction_loss_tracker = keras.metrics.Mean(
+            name="reconstruction_loss"
+        )
+        self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
+        # self.input_shape = input_shape
 
     @property
     def metrics(self):
@@ -1105,7 +1428,7 @@ class VAE(keras.Model):
         }
 
     def summary(self):
-        x = tf.keras.Input(shape=self.input_shape, name="input_layer")
+        x = tf.keras.Input(shape=(1000, 1000, 1), name="input_layer")
         self.model = tf.keras.Model(inputs=[x], outputs=self.call(x))
         return self.model.summary()
 
@@ -1131,10 +1454,6 @@ def vae_NF(input_side, learning_rate=1E-4, flow_label=None, z_size=625, n_flows=
                        loss=loss, learning_rate=learning_rate,
                        beta_update_fn=beta_update)
     return vae.model
-
-
-
-
 
 
 def kgs_to_bt(input_shape, input2_shape=None):

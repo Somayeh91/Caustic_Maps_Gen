@@ -1,5 +1,6 @@
 node_modules/
 build/
+map_IDs/
 npm-debug.log
 .env
 *.pyc

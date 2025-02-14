@@ -76,6 +76,7 @@ script = """#!/bin/bash
 #SBATCH --mail-user=somayeh.khakpash@gmail.com
 #SBATCH --mem={mem}
 #SBATCH --gres=gpu:{n_gpu}                  # Number of GPUs
+
 cd {cwd}
 source {shell_name}
 module load gcc/11.3.0
@@ -109,5 +110,4 @@ os.system('sbatch {}'.format(slurm_script_file))
 #SBATCH --ntasks=1                    # Total # of tasks across all nodes
 #SBATCH --cpus-per-task=1             # Cores per task (>1 if multithread tasks)
 # SBATCH --mem={mem}                 # Real memory (RAM) required (MB)
-#SBATCH --gres=gpu:{n_gpu}                  # Number of GPUs
 #SBATCH --mem-per-cpu={mem_per_cpu}   # Memory per core

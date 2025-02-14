@@ -1,8 +1,7 @@
-from tensorflow import keras
 import random
-import numpy as np
+import os
 import pickle as pkl
-from maps_util import read_all_maps
+from maps_util import read_all_maps, split_data
 from my_models import *
 from maps_util import NormalizeData, read_all_lens_pos, read_binary_map
 from more_info import best_AD_models_info
@@ -10,29 +9,19 @@ from maps_util import read_AD_model
 from metric_utils import calculate_ks_metric, process_FID
 from FID_calculator import read_inceptionV3
 from prepare_maps import process_lc4
+from plotting_utils import compareinout
 
 
 def display_model(model):
     model.summary()
 
 
-def read_saved_model(path):
-    autoencoder_model = keras.models.load_model(path)
-    return autoencoder_model
-
 
 def scheduler(epoch, lr):
-    step = epoch // 50
-    if step == 0:
-        return lr
-    elif step == 1:
-        return lr / 10
-    elif step == 2:
-        return lr / 100
-    elif step == 3:
-        return lr / 1000
-    elif step > 3:
-        return lr / 10000
+    """Decrease learning rate by a factor of 0.5 every 20 epochs"""
+    if epoch % 20 == 0 and epoch != 0:
+        return lr * 0.5
+    return lr
 
 
 def compile_model(model,
@@ -52,25 +41,69 @@ def fit_model(model_design_key,
               x_validation=None,
               y_validation=None,
               filepath=None,
+              batch_size=8,
               early_callback_=None,
               use_multiprocessing=True):
+    """
+        Trains a machine learning model with optional early stopping, model checkpointing, learning rate scheduling,
+        or output visualization.
+
+        Parameters:
+        -----------
+        model_design_key : str
+            A string key indicating the model design type, which influences dataset formatting and callback behavior.
+        model : keras.Model
+            The neural network model to be trained.
+        epochs : int
+            Number of training epochs.
+        x_train : array-like or TensorFlow dataset
+            The training data.
+        y_train : array-like, optional
+            The training labels, required for specific model types.
+        x_validation : array-like or TensorFlow dataset, optional
+            The validation data. If 'plot_output' callback is used, this must be provided.
+        y_validation : array-like, optional
+            The validation labels, used when `x_validation` is provided.
+        filepath : str, optional
+            Path to save the model checkpoint when `early_callback_` is set to 'model_checkpoint' or
+            'plot_output' callback is used.
+        batch_size : int, default=8
+            Batch size for training.
+        early_callback_ : str, optional
+            Specifies an early stopping mechanism:
+            - 'early_stop': Stops training if validation loss does not improve.
+            - 'model_checkpoint': Saves model checkpoints at each epoch.
+            - 'changing_lr': Adjusts the learning rate dynamically using a scheduler.
+            - 'plot_output': Generates visual comparisons of model predictions at regular intervals (requires `x_validation`).
+        use_multiprocessing : bool, default=True
+            Whether to use multiprocessing during training.
+
+        Returns:
+        --------
+        history : keras.callbacks.History
+            A history object containing details of the training process.
+
+        Notes:
+        ------
+        - If `model_design_key` contains 'lens', the `'plot_output'` callback enables lens position tracking.
+        - If `model_design_key` starts with 'kgs' or 'bt', training is done with a model other than an autoencoder.
+        - Otherwise, `x_train` and `x_validation` are converted to TensorFlow datasets to enable pre-fetching.
+        """
     ec = []
     if early_callback_ is not None:
-        if early_callback_ == 'early_stop':
-            ec.append(EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=50, min_delta=0.00001))
-        elif early_callback_ == 'model_checkpoint':
-            ec.append(ModelCheckpoint(
-                filepath=filepath,
-                save_freq='epoch'))
-        elif early_callback_ == 'changing_lr':
-            ec.append(keras.callbacks.LearningRateScheduler(scheduler))
+        for callback in early_callback_:
+            ec = set_callbacks(callback, model_design_key, model, x_validation, filepath, ec)
 
     if not (model_design_key.startswith('kgs') or model_design_key.startswith('bt')):
-        history = model.fit_generator(generator=x_train,
-                                      validation_data=x_validation,
-                                      epochs=epochs,
-                                      callbacks=ec,
-                                      use_multiprocessing=use_multiprocessing)
+        x_train = x_train.to_tf_dataset()
+        x_validation = x_validation.to_tf_dataset()
+
+
+        history = model.fit(x_train,
+                            validation_data=x_validation,
+                            epochs=epochs,
+                            callbacks=ec,
+                            use_multiprocessing=use_multiprocessing)
 
     else:
         history = model.fit(x_train,
@@ -83,6 +116,49 @@ def fit_model(model_design_key,
 
 
 def prepare_input_to_fit_keras_ADs(running_params, model_params):
+    """
+    Prepares input data for training and testing a Keras-based Autoencoder model.
+
+    Parameters:
+    -----------
+    running_params : dict
+        Dictionary containing runtime parameters, including:
+        - 'sample_size': Number of samples to be used.
+        - 'mode': Defines the execution mode ('train_test', 'retrain_test', or 'test').
+        - 'test_selection': Strategy for selecting test samples (e.g., 'random', 'all_test', 'sorted', etc.).
+        - 'train_selection': Strategy for selecting training samples (e.g., 'k=g', 'random', 'retrain_old', etc.).
+        - 'output_dir': Directory to save partitioned sample sets.
+        - 'n_test_set': Number of test samples to select.
+        - 'list_IDs_directory': Path to file containing map IDs for training, if applicable.
+        - 'saved_model_path': Path to a previously saved model, used in retraining/testing scenarios.
+        - 'batch_size': Batch size for data partitioning.
+
+    model_params : dict
+        Dictionary containing model parameters, used for retraining or testing.
+
+    Returns:
+    --------
+    partition : dict
+        Dictionary containing the partitioned datasets:
+        - 'train': Training set map IDs.
+        - 'validation': Validation set map IDs.
+        - 'test': Test set map IDs.
+    data_dict : dict or None
+        Dictionary containing all map data if loaded, otherwise None.
+    running_params : dict
+        Updated running parameters in case of retraining or loading previous settings.
+    model_params : dict
+        Updated model parameters if reloaded from a saved model.
+
+    Notes:
+    ------
+    - If `mode` is 'train_test', new training, validation, and test partitions are created.
+    - If `mode` is 'retrain_test' or 'test', partitions and parameters may be loaded from a saved model.
+    - Different `train_selection` strategies determine how training data is chosen (e.g., loading from a file vs. random sampling).
+    - The function saves the generated partition to a pickle file in the `output_dir`.
+    - The partitioning of data is done using `split_data()`, which divides the dataset into training, validation, and test sets.
+    - A seeded random shuffling mechanism ensures reproducibility.
+    """
     sample_size = running_params['sample_size']
     mode = running_params['mode']
     test_selection = running_params['test_selection']
@@ -92,9 +168,10 @@ def prepare_input_to_fit_keras_ADs(running_params, model_params):
 
     if mode == 'train_test':
 
-        if train_selection == 'k=g':
+        if train_selection == 'k=g' or train_selection == 'repeated_kg':
             ls_maps = np.loadtxt(running_params['list_IDs_directory'], dtype=int)
             data_dict = None
+
         else:
             maps_per_batch = 1122
             n_batches = int(((sample_size / maps_per_batch) - (sample_size / maps_per_batch) % 1))
@@ -111,9 +188,7 @@ def prepare_input_to_fit_keras_ADs(running_params, model_params):
         ls_maps = ls_maps[shuffler]
         n_maps = len(ls_maps)
 
-        indx1 = np.arange(int(0.8 * n_maps), dtype=int)
-        indx2 = np.arange(int(0.8 * n_maps), int(0.9 * n_maps))
-        indx3 = np.arange(int(0.9 * n_maps), n_maps)
+        indx1, indx2, indx3 = split_data(n_maps, running_params['batch_size'], test_selection, n_test_set)
 
         partition['train'] = ls_maps[indx1]
         partition['validation'] = ls_maps[indx2]
@@ -159,7 +234,9 @@ def prepare_input_to_fit_keras_ADs(running_params, model_params):
                 all_keys = data_dict.keys()
                 ls_maps = random.sample(list(all_keys), int(sample_size))
 
-            elif train_selection == 'retrain_k=g':
+            elif train_selection == 'retrain_k=g' or\
+                 train_selection == 'retrain_repeated_kg' or\
+                 train_selection == 'repeated_kg':
                 ls_maps = np.loadtxt(running_params['list_IDs_directory'], dtype=int)
                 data_dict = None
 
@@ -172,9 +249,7 @@ def prepare_input_to_fit_keras_ADs(running_params, model_params):
             ls_maps = ls_maps[shuffler]
             n_maps = len(ls_maps)
 
-            indx1 = np.arange(int(0.8 * n_maps), dtype=int)
-            indx2 = np.arange(int(0.8 * n_maps), int(0.9 * n_maps))
-            indx3 = np.arange(int(0.9 * n_maps), n_maps)
+            indx1, indx2, indx3 = split_data(n_maps, running_params['batch_size'], test_selection, n_test_set)
 
             partition['train'] = ls_maps[indx1]
             partition['validation'] = ls_maps[indx2]
@@ -201,6 +276,55 @@ def prepare_input_to_fit_keras_ADs(running_params, model_params):
 
 
 def prepare_input_for_kgs_bt(model_design_key, running_params):
+    """
+    Prepares input data for training and testing a Keras-based model, specifically for models that take the kappa-gamma-shear (kgs)
+    and produce bottleneck (bt) representations or vice versa.
+
+    Parameters:
+    -----------
+    model_design_key : str
+        Specifies the model type and determines if lens position data should be included
+        (e.g., 'kgs_lens_pos_to_bt' includes lens positions).
+    running_params : dict
+        Dictionary containing runtime parameters, including:
+        - 'test_selection': Strategy for selecting test samples (e.g., 'random', 'all_test', 'sorted', etc.).
+        - 'train_selection': Strategy for selecting training samples (e.g., 'k=g', 'retrain_k=g', 'random', etc.).
+        - 'n_test_set': Number of test samples to select.
+        - 'saved_LSR_path': Path to saved latent space representations (LSR).
+        - 'test_IDs': List of specific test IDs, used if `test_selection` is 'given'.
+
+    Returns:
+    --------
+    bt_train : numpy.ndarray
+        Training set bottleneck representations.
+    bt_test : numpy.ndarray
+        Test set bottleneck representations.
+    kgs_train : numpy.ndarray
+        Normalized training set kappa, gamma, and shear parameters.
+    kgs_test : numpy.ndarray
+        Normalized test set kappa, gamma, and shear parameters.
+    lens_pos_train : numpy.ndarray
+        Training set lens position histograms (if applicable).
+    lens_pos_test : numpy.ndarray
+        Test set lens position histograms (if applicable).
+    ids_train : numpy.ndarray
+        Training set IDs.
+    ids_test : numpy.ndarray
+        Test set IDs.
+    IDs : numpy.ndarray
+        Full list of dataset IDs.
+
+    Notes:
+    ------
+    - Reads metadata (`all_maps_meta_kgs.csv`) and loads latent space representations (`saved_LSR_path`).
+    - If `model_design_key` is 'kgs_lens_pos_to_bt', lens position histograms are computed and normalized.
+    - If `train_selection` is 'k=g' or 'retrain_k=g', the dataset is filtered to kappa ~ gamma within a given offset.
+    - The dataset is expanded by a factor of 10 through augmentation, and the bottleneck representations
+      are reshaped for input into the neural network.
+    - The data is shuffled and split into 90% training and 10% test sets.
+    - Training parameters are normalized using `NormalizeData()` before returning.
+    - Different `test_selection` strategies determine how the test set is chosen.
+    """
     test_selection = running_params['test_selection']
     train_selection = running_params['train_selection']
     n_test_set = running_params['n_test_set']
@@ -330,7 +454,7 @@ def prepare_input_for_kgs_bt(model_design_key, running_params):
         ids_test = ids_test_[:n_test_set]
     elif test_selection == 'given':
         indexes = [True if id in running_params['test_IDs'] else False for id in IDs]
-            # [np.where(IDs == id) for id in running_params['test_IDs']]
+        # [np.where(IDs == id) for id in running_params['test_IDs']]
         bt_test = bottleneck[indexes]
         lens_pos_test = lens_pos[indexes]
         kgs_test = x_params[indexes]
@@ -345,27 +469,79 @@ def prepare_input_for_kgs_bt(model_design_key, running_params):
 
 
 def set_up_model(model_design_key, model_params, running_params):
-    dim = running_params['dim']
+    """
+    Initializes and configures a machine learning model based on the specified model design keys and parameters.
+
+    Parameters:
+    -----------
+    model_design_key : str
+        Specifies the type of model to initialize. Supported options include:
+        - 'VAE_Unet_Resnet': Variational Autoencoder (VAE) with U-Net and ResNet components.
+        - 'VAE_lens_pos': VAE with lens position encoding.
+        - 'kgs_to_bt', 'bt_to_kgs', 'kgs_lens_pos_to_bt': Models for transforming kappa-gamma-shear (kgs) to bottleneck (bt) and vice versa.
+        - Other VAE-based and convolutional models.
+    model_params : dict
+        Dictionary containing model parameters, including:
+        - 'model_function': The function defining the model architecture.
+        - 'z_size': Latent space dimension (for VAE models).
+        - 'n_channels': Number of input/output channels.
+        - 'input_side': Input size for some models.
+        - 'input_side2': Secondary input shape (if applicable).
+        - 'flow_label': Type of flow model (if applicable).
+        - 'n_flows': Number of flows in flow-based architectures.
+        - 'first_down_sampling': Downsampling factor for the first layer.
+        - 'crop_scale': Scaling factor for lowering the pixel sizes of input images.
+    running_params : dict
+        Dictionary containing runtime parameters, including:
+        - 'input_size': Original input size.
+        - 'output_size': Processed output size.
+        - 'res_scale': Resolution scaling factor.
+
+    Returns:
+    --------
+    model : keras.Model
+        The configured Keras model.
+
+    Notes:
+    ------
+    - The function calculates the input dimension (`dim_input`) based on the provided resolution and cropping parameters.
+    - If `model_design_key` starts with 'VAE', different encoder-decoder architectures are used based on the specific key.
+    - If `crop_scale` is not 1.0 and `model_design_key` is 'Unet2', a U-Net model with downsampling is set up.
+    - Certain models (e.g., `kgs_to_bt`, `bt_to_kgs`, `kgs_lens_pos_to_bt`) use specific functions defined in `model_params`.
+    - The function dynamically selects the appropriate model function based on the given parameters.
+    """
+    dim = running_params['input_size']
     crop_scale = model_params['crop_scale']
     res_scale = running_params['res_scale']
+    if dim == 10000:
+        dim_input = int((dim / res_scale) * crop_scale)
+    else:
+        dim_input = running_params['output_size']
 
     if model_design_key.startswith('VAE'):
         if model_design_key == 'VAE_Unet_Resnet':
-            encoder = vae_encoder(int((dim / res_scale) * crop_scale),
+            encoder = vae_encoder(dim_input,
                                   z_size=model_params['z_size'],
                                   n_channels=model_params['n_channels'],
                                   af='relu')
+            model = VAE(encoder,
+                        vae_decoder(model_params['z_size'], 'relu'))
+        elif model_design_key == 'VAE_lens_pos':
+            encoder = vae_encoder_lens_pos()
+            decoder = vae_decoder_lens_pos()
+            model = VAE2(encoder,
+                         vae_decoder(z_size=625))
         else:
-            encoder = vae_encoder_3params(int((dim / res_scale) * crop_scale),
+            encoder = vae_encoder_3params(dim_input,
                                           input2=3,
                                           z_size=model_params['z_size'],
                                           n_channels=model_params['n_channels'],
                                           af='relu')
-        model = VAE(encoder,
-                    vae_decoder(model_params['z_size'], 'relu'))
+            model = VAE(encoder,
+                        vae_decoder(model_params['z_size'], 'relu'))
 
     elif crop_scale != 1. and model_design_key == 'Unet2':
-        model = model_params['model_function'](int((dim / res_scale) * crop_scale), first_down_sampling=4)
+        model = model_params['model_function'](dim_input, first_down_sampling=4)
 
     elif model_design_key == 'kgs_to_bt' or \
             model_design_key == 'bt_to_kgs' or \
@@ -375,7 +551,7 @@ def set_up_model(model_design_key, model_params, running_params):
                                                input2_shape=model_params['input_side2'])
 
     else:
-        model = model_params['model_function'](int((dim / res_scale) * crop_scale),
+        model = model_params['model_function'](dim_input,
                                                input2=model_params['input_side2'],
                                                n_channels=model_params['n_channels'],
                                                z_size=model_params['z_size'],
@@ -388,12 +564,51 @@ def set_up_model(model_design_key, model_params, running_params):
 
 
 def evaluate_kgs_generated_maps(IDs, AD_model_ID, LSR_generated, running_params, metric):
-    model_file = np.asarray(best_AD_models_info['job_model_filename'])[np.asarray(best_AD_models_info['job_names']) == AD_model_ID][0]
-    cost_label = np.asarray(best_AD_models_info['job_cost_labels'])[np.asarray(best_AD_models_info['job_names']) == AD_model_ID][0]
+    """
+    Evaluates the quality of kappa-gamma-shear (kgs) generated maps using a specified metric.
+
+    Parameters:
+    -----------
+    IDs : list or numpy.ndarray
+        List of map IDs corresponding to the generated maps.
+    AD_model_ID : str
+        Identifier for the anomaly detection (AD) model used for evaluation.
+    LSR_generated : numpy.ndarray
+        Latent space representations (LSR) of the generated maps.
+    running_params : dict
+        Dictionary containing runtime parameters, including:
+        - 'saved_LSR_path': Path where latent space representations are stored.
+        - 'input_size': Expected input size of the maps.
+        - 'output_dir': Directory to save metric results.
+    metric : str
+        The evaluation metric to use. Options include:
+        - 'ssm': Uses the Anderson-Darling test to compute the Kolmogorov-Smirnov metric.
+        - 'lc_sim': Processes light curve similarity using a predefined function.
+        - 'fid': Computes the Fréchet Inception Distance (FID) score.
+
+    Returns:
+    --------
+    float or numpy.ndarray
+        - If `metric` is 'fid', returns the computed FID score.
+        - Otherwise, returns the median value of the computed metric across all maps.
+
+    Notes:
+    ------
+    - Loads the best-performing anomaly detection (AD) model based on `AD_model_ID` and reconstructs the maps.
+    - Uses a predefined decoder layer to reconstruct maps from the latent space representations.
+    - Reads the ground truth maps, normalizes them, and compares them against the reconstructed maps using the chosen metric.
+    - For 'fid' evaluation, loads the InceptionV3 model and computes the FID score.
+    - Saves metric-related outputs in `output_dir`.
+    """
+    model_file = \
+    np.asarray(best_AD_models_info['job_model_filename'])[np.asarray(best_AD_models_info['job_names']) == AD_model_ID][
+        0]
+    cost_label = \
+    np.asarray(best_AD_models_info['job_cost_labels'])[np.asarray(best_AD_models_info['job_names']) == AD_model_ID][0]
 
     path_to_model = running_params['saved_LSR_path'].split('LSR')[0]
     model = read_AD_model(AD_model_ID, model_file, cost_label)
-    dim = running_params['dim']
+    dim = running_params['input_size']
     output_dir = running_params['output_dir']
 
     if dim == 50:
@@ -431,3 +646,131 @@ def evaluate_kgs_generated_maps(IDs, AD_model_ID, LSR_generated, running_params,
                             inceptionv3])
     else:
         return np.median(metric_all)
+
+
+def evaluate_AD_maps(in_maps, out_maps, model_name):
+    """
+    Evaluates the quality of anomaly detection (AD) maps by computing various similarity metrics.
+
+    Parameters:
+    -----------
+    in_maps : numpy.ndarray
+        Array of original input maps.
+    out_maps : numpy.ndarray
+        Array of reconstructed or generated output maps to be compared against `in_maps`.
+    model_name : str
+        Name of the model used for generating `out_maps`, included in light curve similarity computation.
+
+    Returns:
+    --------
+    metric_all : numpy.ndarray
+        A NumPy array of shape (N, 3), where N is the number of maps, and each row contains:
+        - Column 0: The Kolmogorov-Smirnov metric using the Anderson-Darling test ('ssm').
+        - Column 1: The mean light curve similarity score ('lc_sim').
+        - Column 2: The Fréchet Inception Distance (FID) score, which is the same for all maps.
+
+    Notes:
+    ------
+    - The function computes three evaluation metrics for each map:
+      1. The Anderson-Darling variant of the Kolmogorov-Smirnov metric (`calculate_ks_metric`).
+      2. The light curve similarity (`process_lc4`), averaged over multiple runs.
+      3. The Fréchet Inception Distance (FID) score, computed using a pre-trained InceptionV3 model.
+    - FID is computed once for the entire dataset and assigned uniformly to all entries in `metric_all`.
+    - The function assumes `map_i` and `map_new` have compatible shapes and are properly preprocessed.
+    """
+    metric_all = np.zeros((len(in_maps), 3))
+    for i, ID in enumerate(in_maps):
+        map_i = in_maps[i]
+        map_new = out_maps[i]
+        # Calculating Metric SSM
+        metric_all[i, 0] = calculate_ks_metric(map_i.flatten(), map_new.flatten(), test_name='anderson')
+
+        # Calculating metric lc_sim
+        tmp_lc_sim = process_lc4([model_name,
+                                  map_i,
+                                  map_new.reshape(map_i.shape),
+                                  None,
+                                  100,
+                                  100,
+                                  'AD',
+                                  'random',
+                                  None,
+                                  False])
+        metric_all[i, 1] = np.mean(np.asarray(tmp_lc_sim).flatten())
+
+    inceptionv3 = read_inceptionV3()
+    metric_all[:, 2] = np.ones((len(in_maps))) * process_FID([in_maps,
+                                                              out_maps,
+                                                              inceptionv3])
+    return metric_all
+
+
+class ComparisonPlotCallback(tf.keras.callbacks.Callback):
+    def __init__(self,
+                 model,
+                 validation_data,
+                 model_design_key,
+                 lens_pos=False,
+                 save_dir="comparison_images",
+                 interval=10):
+        super().__init__()
+        self.model = model
+        self.validation_data = validation_data
+        self.interval = interval
+        self.save_dir = save_dir
+        self.lens_pos = lens_pos
+        self.model_design_key = model_design_key
+        os.makedirs(save_dir, exist_ok=True)  # Create directory if it doesn't exist
+
+    def on_epoch_end(self, epoch, logs=None):
+        if (epoch + 1) % self.interval == 0:  # Every 10 epochs
+            print(f"\nGenerating comparison plot at epoch {epoch + 1}...")
+
+            # Get one sample batch
+            X, y_true = next(iter(self.validation_data))
+
+            # Pick the first sample in batch
+            if self.lens_pos:
+                (X1, X2) = X
+                input_img = X1[0]
+            else:
+                input_img = X[0]
+            true_output = y_true[0]
+
+
+            # Model prediction
+            predicted_output = self.model.predict(X, verbose=0)[0]
+
+            # Plot results
+            dim = input_img.shape[1]
+            compareinout(predicted_output,
+                         input_img,
+                         dim,
+                         self.save_dir,
+                         self.model_design_key,
+                         epoch)
+            print(f"Saved comparison plot: {self.save_dir+ 'model_%s_test_%i.png' % (self.model_design_key, epoch)}")
+
+
+def set_callbacks(callback_label, model_design_key, model, x_validation, filepath, ec):
+    if callback_label == 'early_stop':
+        ec.append(EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=50, min_delta=0.00001))
+    elif callback_label == 'model_checkpoint':
+        ec.append(ModelCheckpoint(
+            filepath=filepath,
+            save_freq='epoch'))
+    elif callback_label == 'changing_lr':
+        ec.append(keras.callbacks.LearningRateScheduler(scheduler))
+    elif callback_label == 'plot_output':
+        if not x_validation == 'None':
+            if 'lens' in model_design_key.split('_'):
+                lens_pos_flag = True
+            else:
+                lens_pos_flag = False
+            ec.append(ComparisonPlotCallback(model,
+                                             x_validation,
+                                             model_design_key,
+                                             lens_pos=lens_pos_flag,
+                                             save_dir=filepath,
+                                             interval=10))
+    return ec

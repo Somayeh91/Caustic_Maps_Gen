@@ -55,12 +55,26 @@ python submit_job_python.py -python_file=connect_kgs_bottleneck.py -n_cpu=1 -mem
 python submit_job_python.py -python_file=connect_kgs_bottleneck.py -n_cpu=1 -mem_per_cpu=20G -n_hrs=10 -pythonFileArguments="-mode=train_test -model_design=kgs_lens_pos_to_bt -batch_size=128 -loss_function=custom -n_epochs=150 -lr_rate=0.001 -dim=50"
 
 python submit_job_python.py -python_file=train_test_models.py  -n_gpu=1 -mem=60G -n_hrs=20 -pythonFileArguments="-mode=train_test -model_design=kgs_lens_pos_to_bt -batch_size=128 -loss_function=binary_crossentropy -n_epochs=100 -lr_rate=0.001 -dim=50 -train_set_selection=k=g -test_set_selection=sorted"
+
+python submit_job_python.py -python_file=train_test_models.py  -n_gpu=1 -mem=60G -n_hrs=20 --pythonFileArguments="-mode=train_test -model_design=VAE_Unet_Resnet -batch_size=128 -loss_function=binary_crossentropy -n_epochs=100 -lr_rate=0.001 -dim=50 -train_set_selection=k=g -test_set_selection=sorted"
+
+ython train_test_models.py -mode=train_test -model_design=VAE_Unet_Resnet -batch_size=128 -loss_function=binary_crossentropy -n_epochs=100 -lr_rate=0.001 -dim=50 -train_set_selection=repeated_kg -test_set_selection=sorted -sample_size=2550
+TF_CPP_MIN_LOG_LEVEL=2 python train_test_models.py -mode=train_test -model_design=Unet2_lens_pos_masked -batch_size=8 -loss_function=binary_crossentropy -n_epochs=3 -lr_rate=0.001 -input_size=4096 -train_set_selection=repeated_kg -test_set_selection=sorted -sample_size=2550 -bottleneck_size=2500 -add_lens_pos=True
+python submit_job_python.py -python_file=train_test_models.py  -n_gpu=1 -mem=20G -n_hrs=10 -pythonFileArguments="-mode=train_test -model_design=Unet2_lens_pos_masked -batch_size=8 -loss_function=binary_crossentropy -n_epochs=50 -lr_rate=0.001 -input_size=4096 -train_set_selection=repeated_kg -test_set_selection=sorted -sample_size=2550 -bottleneck_size=2500 -add_lens_pos=True"
+TF_CPP_MIN_LOG_LEVEL=2 python train_test_models.py -mode=retrain_test -model_design=Unet2_lens_pos_masked -batch_size=8 -loss_function=binary_crossentropy -n_epochs=3 -lr_rate=0.001 -input_size=4096 -train_set_selection=repeated_kg -test_set_selection=sorted -sample_size=2550 -bottleneck_size=2500 -add_lens_pos=True -saved_model_path=./../../../fred/oz108/skhakpas/results/25-02-13-06-04-21/model_4096_8_0.001.json
+python submit_job_python.py -python_file=train_test_models.py  -n_gpu=1 -mem=20G -n_hrs=50 -pythonFileArguments="-mode=retrain_test -model_design=Unet2_lens_pos_masked -batch_size=8 -loss_function=binary_crossentropy -n_epochs=300 -lr_rate=0.001 -input_size=4096 -train_set_selection=repeated_kg -test_set_selection=sorted -sample_size=2550 -bottleneck_size=2500 -add_lens_pos=True -saved_model_path=./../../../../fred/oz108/skhakpas/results/25-02-13-06-04-21/model_4096_8_1e-2.json -early_callback=changing_lr,plot_output"
+python submit_job_python.py -python_file=train_test_models.py  -n_gpu=1 -mem=20G -n_hrs=58 -pythonFileArguments="-mode=train_test -model_design=Unet2 -batch_size=8 -loss_function=custom -n_epochs=350 -lr_rate=0.001 -input_size=4096 -train_set_selection=repeated_kg -test_set_selection=sorted -sample_size=2550 -early_callback=changing_lr,plot_output"
 -----------------------------------------------------------------------
 sinteractive --time=2:0:0 --mem=60g --cpus-per-task=1
-sinteractive --time=0:30:0 --gres=gpu:1 --mem=60GB
+sinteractive --time=2:30:0 --gres=gpu:1 --mem=20GB
+sinteractive --time=0:30:0 --ntasks=10 --mem_per_cpu=3G
 -----------------------------------------------------------------------
 scp <file directory> skhakpas@ozstar.swin.edu.au:./codes
 scp training_utils.py skhakpas@ozstar.swin.edu.au:./codes
+-----------------------------------------------------------------------
+python submit_job_python.py -python_file=reduce_map_sizes.py -n_cpu=20 -n_gpu=0 -mem_per_cpu=3G -n_hrs=70 -jobname=save_full_maps -pythonFileArguments="-list_IDs_directory=./../data/gd0_similar_ks.dat -input_map_size=4096 -output_map_size=1000"
+-----------------------------------------------------------------------
+python submit_job_python.py -python_file=extract_map_statistics.py -n_cpu=20 -n_gpu=0 -mem_per_cpu=1G -n_hrs=10 -jobname=save_full_maps -pythonFileArguments="-list_IDs_directory=./../data/gd0_similar_ks.dat -input_map_size=4096 -output_map_size=1000 -save_lens_pos=True"
 -----------------------------------------------------------------------
 
 
@@ -72,6 +86,9 @@ python submit_job_python.py -python_file=evaluation.py -n_cpu=1 -n_gpu=0 -mem_pe
 
 python submit_job_python.py -python_file=evaluation.py -n_cpu=5 -n_gpu=0 -mem_per_cpu=3G -n_hrs=70 -jobname=lc_distance_metric_1000maps_per_map -pythonFileArguments="-lc_distance_metric=True -per_map=True -output_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/lc_metric_plots/trial2/ -list_IDs_directory=./../data/maps_cover_all_kg_s_0.1_0.5_0.8.txt -num_lc=10000 -uncertainty_calculater_steps=1000"
 python submit_job_python.py -python_file=evaluation.py -n_cpu=10 -n_gpu=0 -mem_per_cpu=3G -n_hrs=70 -jobname=lc_distance_metric_720maps_per_map_conv_0.1 -pythonFileArguments="-lc_distance_metric=True -per_map=True -output_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/lc_metric_plots/trial2/ -list_IDs_directory=./../data/720_maps_cover_all_kg_space.txt -rsrc=0.1 -num_lc=1000 -uncertainty_calculater_steps=1000"
+
+python submit_job_python.py -python_file=evaluation.py -n_cpu=10 -n_gpu=0 -mem_per_cpu=3G -n_hrs=70 -jobname=gen_lc_for_720maps -pythonFileArguments="-gen_lc=True -output_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/gerlumph_lcs/720_maps -list_IDs_directory=./../data/720_maps_cover_all_kg_space.txt -num_lc=1000"
+
 
 python submit_job_python.py -python_file=evaluation.py -n_cpu=1 -n_gpu=0 -mem_per_cpu=50G -n_hrs=10 -pythonFileArguments="-lc_distance_per_map100_for_saved_lc=True -output_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/lc_metric_plots/trial2_100maps/ -list_IDs_directory=./../data/eval_maps_100maps_seed33.txt -input_directory=./../../../fred/oz108/skhakpas/results/24-03-24-03-00-19/"
 

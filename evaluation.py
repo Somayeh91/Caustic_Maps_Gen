@@ -1,9 +1,7 @@
 import multiprocessing as mmp
 from multiprocessing import Pool
 import argparse
-import time
-import pickle as pkl
-from more_info import models_info
+from more_info import best_AD_models_info
 from prepare_maps import *
 from plotting_utils import *
 from conv_utils import *
@@ -11,7 +9,6 @@ from metric_utils import *
 from maps_util import *
 from FID_calculator import *
 import keras
-import matplotlib.pyplot as plt
 
 
 def parse_options():
@@ -30,6 +27,12 @@ def parse_options():
     parser.add_argument('-rsrc', action='store',
                         default='0.1,0.5',
                         help='A list of source sizes for convolution, separated by commas.')
+    parser.add_argument('-input_map_size', action='store',
+                        default=10000,
+                        help='size of each side the original maps in pixels.')
+    parser.add_argument('-output_map_size', action='store',
+                        default=1000,
+                        help='size of each side the maps with reduced resolution in pixels.')
     parser.add_argument('-AD_model_ID', action='store',
                         default='23-12-14-01-12-07',
                         help='AD model name.')
@@ -104,7 +107,10 @@ def parse_options():
                         help='Set verbose.')
     parser.add_argument('-gen_ID_list', action='store',
                         default=False,
-                        help='Do ypu want to generate a list of random IDs or read from an existing list?')
+                        help='Do you want to generate a list of random IDs or read from an existing list?')
+    parser.add_argument('-gen_lc', action='store',
+                        default=False,
+                        help='Do you just want to generate lightcurves for a list of maps and save them?')
     parser.add_argument('-saved_before', action='store',
                         default=False,
                         help='Do you want to save the results in a directory that already exists?')
@@ -114,6 +120,14 @@ def parse_options():
     parser.add_argument('-uncertainty_calculater_steps', action='store',
                         default=1000,
                         help='Do you want to save the results in a directory that already exists?')
+    parser.add_argument('-to_mag', action='store',
+                        default=True,
+                        help='Do you want to keep maps in units of magnification or ray counts? Note that the units '
+                             'of light curves will be changed as well.')
+    parser.add_argument('-norm_map_values', action='store',
+                        default=True,
+                        help='Do you want to normalize map values? It is recommended for training machine learning. '
+                             'Note that light curve units will be affected as well.')
 
     # Parses through the arguments and saves them within the keyword args
     arguments = parser.parse_args()
@@ -126,6 +140,7 @@ if __name__ == "__main__":
     print('Setting up the initial parameters...')
     args = parse_options()
     gen_ID_list = args.gen_ID_list
+    gen_lc = args.gen_lc
     saved_before = args.saved_before
     save_LSR = args.save_LSR
     if gen_ID_list:
@@ -135,6 +150,8 @@ if __name__ == "__main__":
 
     output_direc = args.output_directory
     input_direc = args.input_directory
+    input_map_size = int(args.input_map_size)
+    output_map_size = int(args.output_map_size)
     model_ID = args.AD_model_ID
     model_file = args.AD_model_file_name
     cost_label = args.AD_model_cost_label
@@ -157,17 +174,19 @@ if __name__ == "__main__":
     lc_distance_per_map100_for_saved_lc = args.lc_distance_per_map100_for_saved_lc
     verbose = args.verbose
     rsrcs = np.asarray([float(rsrc) for rsrc in args.rsrc.split(',')])
-    n_models = len(models_info['data'])
-    models = models_info['job_names']
-    model_files = models_info['job_model_filename']
-    cost_labels = models_info['job_cost_labels']
-    LSR_layer_names = models_info['LSR_layer_name']
+    n_models = len(best_AD_models_info['data'])
+    models = best_AD_models_info['job_names']
+    model_files = best_AD_models_info['job_model_filename']
+    cost_labels = best_AD_models_info['job_cost_labels']
+    LSR_layer_names = best_AD_models_info['LSR_layer_name']
     FID_metrics = np.zeros((n_models, len(rsrcs) + 1))
     FID_metrics_unc = np.zeros((n_models, len(rsrcs) + 1, steps))
     KS_metrics = np.zeros((n_models, len(rsrcs) + 1))
     KS_metrics_unc = np.zeros((n_models, len(rsrcs) + 1, len(list_ID)))
     fit_lc_metrics = np.zeros((n_models + 1, len(rsrcs) + 1, len(list_ID)))
     fit_lc_per_map_metrics = np.zeros((n_models + 1, len(rsrcs) + 1, len(list_ID)))
+    to_mag = args.to_mag
+    norm_map_values = args.norm_map_values
 
     all_lc_fit_lc_metric_all_map = np.zeros((n_models + 1, len(rsrcs) + 1, len(list_ID), steps))
     shape_ = 1000
@@ -188,8 +207,91 @@ if __name__ == "__main__":
         bottleneck_output = autoencoder.get_layer(LSR_layer_names_tmp).output
         model_bottleneck = keras.models.Model(inputs=autoencoder.input, outputs=bottleneck_output)
         LSR = np.array(
-            [process_save_LSR_one_map([model_bottleneck, process_read([ID_, i])]) for i, ID_ in enumerate(list_ID)])
+            [process_save_LSR_one_map([model_bottleneck, process_read([ID_, input_map_size, output_map_size, True, True])]) for i, ID_ in enumerate(list_ID)])
         np.save(output_direc + 'LSR_%s_samplesize_%i' % (model_ID, len(list_ID)), LSR)
+
+    if gen_lc:
+        num_cores = 64  # mp.cpu_count()
+        # num_to_process = min(num_cores, len(list_ID))
+        print('Using %i cores.' % num_cores)
+
+        # pool = mmp.Pool(processes=num_to_process)
+        print('Set up the pool..')
+
+        '''We define four steps for each map:
+        1) (mode == 'true') we use the true version, generate num_lc lightcurves compare to
+        num_lc_picked number of picked lcs and record the min
+        2) (mode == 'true_conv') we repeat the same process for the convolved version of the same map
+        3) (mode == 'AD') we repeat the same process for the AD version of the same map in step 1
+        4) (mode == 'AD_conv') we repeat the same process for the convolved version of the AD map in step 3'''
+
+        modes = ['true', 'true_conv', 'AD', 'AD_conv']
+        lcs_picked_conv = {}
+        print('setting up the list ID...')
+        # list_ID = np.array([23350, 43542, 46645, 48465, 46035])  # list_ID[:]
+        # (0.3, 0.5, 0.5), (0.2, 1.5, 0.5), (1, 0.6, 0.5), (1.6, 0.2, 0.5), (1.6, 1.5, 0.5)
+
+        if len(list_ID) % num_cores == 0:
+            num_processes = int(len(list_ID) / num_cores)
+        else:
+            num_processes = int(len(list_ID) / num_cores) + 1
+        m = -1
+        model = models[m]
+        print('Running for model %s:' % model)
+        model_param = [model,
+                       model_files[m],
+                       cost_labels[m]]
+        autoencoder = read_AD_model(model_param[0],
+                                    model_param[1],
+                                    model_param[2])
+        mode_rand = 'fixed'
+        all_lc = []
+        for n in range(num_processes):
+            print('Batch %i/%i of %i maps:' % (n, num_processes, num_cores))
+            if n == num_processes - 1:
+                list_ID_tmp = list_ID[n * num_cores:]
+            else:
+                list_ID_tmp = list_ID[n * num_cores:(n + 1) * num_cores]
+            with Pool(processes=num_cores) as pool:
+                maps = pool.map(process_read,
+                                [[ID,
+                                  input_map_size,
+                                  output_map_size,
+                                  to_mag,
+                                  norm_map_values] for i, ID in enumerate(list_ID_tmp)])
+                maps_tmp = maps
+
+
+
+
+            map_AD = [process_AD_predict_one_map([autoencoder, map_]) for map_ in maps]
+            output_direc2 = output_direc + 'model_%s_' % model
+            mode_select = 'all'
+            all_maps = {'maps': maps, 'AD_maps': map_AD, 'ID': list_ID_tmp}
+            # pkl.dump(all_maps, open(output_direc + 'saved_maps_batch_%i.pkl' % n,
+            #                         'wb'))
+
+            with Pool(processes=num_cores) as pool:
+                tmp = pool.map(process_lc_gen,
+                               [[model + '_' + str(list_ID_tmp[i]),
+                                 maps_tmp_,
+                                 map_AD[i],
+                                 rsrcs,
+                                 num_lc,
+                                 mode_select,
+                                 mode_rand,
+                                 output_direc2 + '_ID_%i' % list_ID_tmp[i],
+                                 True] for i, maps_tmp_ in
+                                enumerate(maps_tmp)])
+            # all_lc += tmp
+            # dict_temp = dict(zip([str(id) for id in list_ID_tmp],
+            #                      all_lc))
+
+        # np.save(output_direc + 'saved_lcs_%s_720_maps' % (mode_rand), all_lc)
+
+
+
+
 
     if FID_metric_calc:
         num_cores = 20
@@ -210,7 +312,11 @@ if __name__ == "__main__":
             print('Step %i/%i of %i maps:' % (i, steps, num_cores))
             ID_set = random.sample(list(list_ID), num_cores)
             with Pool(processes=num_cores) as pool:
-                maps = pool.map(process_read, [[ID, i] for i, ID in enumerate(ID_set)])
+                maps = pool.map(process_read, [[ID,
+                                                input_map_size,
+                                                output_map_size,
+                                                to_mag,
+                                                norm_map_values] for i, ID in enumerate(ID_set)])
             for m, model in enumerate(models):
                 print('Model %s:' % model)
                 AD_maps = np.array([process_AD_predict_one_map([ADs[m], map_]) for map_ in maps])
@@ -275,7 +381,11 @@ if __name__ == "__main__":
             else:
                 list_ID_tmp = list_ID[n * num_cores:(n + 1) * num_cores]
             with Pool(processes=num_cores) as pool:
-                maps = pool.map(process_read, [[ID, i] for i, ID in enumerate(list_ID_tmp)])
+                maps = pool.map(process_read, [[ID,
+                                                input_map_size,
+                                                output_map_size,
+                                                to_mag,
+                                                norm_map_values] for i, ID in enumerate(list_ID_tmp)])
 
             for m, model in enumerate(models):
                 print('Model %s:' % model)
@@ -371,7 +481,7 @@ if __name__ == "__main__":
             # ID_ref = 23350  # k, g, s = 0.3, 0.5, 0.5
             ID_ref = 33378  # k, g, s = 1.25, 1.4, 0.0
             mode_label = 'crossmap_refID_%i' % ID_ref
-            map_ref = process_read([ID_ref, ID_ref])
+            map_ref = process_read([ID_ref, input_map_size, output_map_size, to_mag, norm_map_values])
             per_map = False
             mode_rand = 'fixed'
         elif per_map:
@@ -391,7 +501,11 @@ if __name__ == "__main__":
                 else:
                     list_ID_tmp = list_ID[n * num_cores:(n + 1) * num_cores]
                 with Pool(processes=num_cores) as pool:
-                    maps = pool.map(process_read, [[ID, i] for i, ID in enumerate(list_ID_tmp)])
+                    maps = pool.map(process_read, [[ID,
+                                                    input_map_size,
+                                                    output_map_size,
+                                                    to_mag,
+                                                    norm_map_values] for i, ID in enumerate(list_ID_tmp)])
                     if per_map:
                         maps_tmp = maps
                     elif cross_map:

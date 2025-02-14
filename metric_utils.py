@@ -2,8 +2,8 @@ import numpy as np
 from scipy import stats
 from random import shuffle
 from FID_calculator import FID_preprocess, calculate_fid
-from maps_util import chi2_calc
-from prepare_maps import *
+from maps_util import chi2_calc, check_shapes
+# from prepare_maps import *
 
 
 def process_KS(maps):
@@ -80,7 +80,7 @@ def calculate_FID_metric(model, input_images, output_images):
 
     output_images = FID_preprocess(output_images)
 
-    fid = calculate_fids(model, input_images, output_images)
+    fid = calculate_fid(model, input_images, output_images)
     return fid
 
 
@@ -105,12 +105,6 @@ def process_fit_lc(lcs):
     return [np.min(metrics), np.argmin(metrics)]
 
 
-def process_fit_lc2(lcs):
-    # print('Starting fit lc process...')
-    lc_picked = lcs[0]
-    alllc = lcs[1]
-    metrics = np.array([fitting_lc_metric(lc_picked, lc) for lc in alllc])
-    return np.round(np.min(metrics), 3)
 
 
 def process_fit_lc_returnall(lcs):
@@ -119,3 +113,12 @@ def process_fit_lc_returnall(lcs):
     alllc = lcs[1]
     metrics = np.array([fitting_lc_metric(lc_picked, lc) for lc in alllc])
     return metrics
+
+
+def process_fit_lc2(lcs):
+    # print('Starting fit lc process...')
+    lc_picked = lcs[0]
+    alllc = lcs[1]
+    metrics = np.array([fitting_lc_metric(lc_picked, lc) for lc in alllc])
+    return np.round(np.min(metrics), 3)
+

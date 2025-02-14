@@ -7,14 +7,18 @@ https://stanford.edu/~shervine/blog/keras-how-to-generate-data-on-the-fly
 import keras
 import numpy as np
 import pandas as pd
-from maps_util import NormalizeData, read_all_lens_pos
+from maps_util import NormalizeData, read_all_lens_pos, read_binary_map, norm_maps, process_read_lens_pos
 from training_utils import prepare_input_to_fit_keras_ADs, prepare_input_for_kgs_bt
+from concurrent.futures import ThreadPoolExecutor
+import tensorflow as tf
+import os
+from functools import lru_cache
 
 
 class DataGenerator(keras.utils.Sequence):
     """Generates data for Keras"""
 
-    def __init__(self, list_IDs, batch_size=8, dim=10000, n_channels=1,
+    def __init__(self, list_IDs, batch_size=8, input_size=10000, n_channels=1,
                  res_scale=10, crop_scale=1, path='./../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/',
                  shuffle=True, conv_const='./../data/all_maps_meta_kgs.csv',
                  output_format='xx',
@@ -220,6 +224,81 @@ class DataGenerator(keras.utils.Sequence):
 
         return X
 
+    import numpy as np
+    import tensorflow as tf
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+
+    class CustomDataGenerator(tf.keras.utils.Sequence):
+        def __init__(self, data_dir, batch_size=32, shuffle=True, num_workers=4):
+            """
+            Custom Data Generator with parallel file loading.
+
+            Args:
+                data_dir (str): Path to the dataset directory.
+                batch_size (int): Number of samples per batch.
+                shuffle (bool): Whether to shuffle data at the end of each epoch.
+                num_workers (int): Number of threads for parallel loading.
+            """
+            self.data_dir = data_dir
+            self.batch_size = batch_size
+            self.shuffle = shuffle
+            self.num_workers = num_workers
+            self.object_folders = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if
+                                   os.path.isdir(os.path.join(data_dir, f))]
+            self.file_paths = self._get_file_list()
+            self.on_epoch_end()  # Shuffle at initialization if needed
+
+        def _get_file_list(self):
+            """Collects all file paths from object directories."""
+            file_paths = []
+            for folder in self.object_folders:
+                files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.npy')]
+                file_paths.extend(files)
+            return file_paths
+
+        def __len__(self):
+            """Denotes the number of batches per epoch."""
+            return int(np.floor(len(self.file_paths) / self.batch_size))
+
+        def __getitem__(self, index):
+            """Generates one batch of data."""
+            batch_files = self.file_paths[index * self.batch_size:(index + 1) * self.batch_size]
+            X, y = self.__data_generation(batch_files)
+            return X, y
+
+        def __data_generation(self, batch_files):
+            """Loads data in parallel using multiple threads."""
+            X = []
+            y = []
+
+            # Use ThreadPoolExecutor for parallel loading
+            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+                results = list(executor.map(self._load_file, batch_files))
+
+            for data, label in results:
+                X.append(data)
+                y.append(label)
+
+            return np.array(X), np.array(y)
+
+        def _load_file(self, file_path):
+            """Loads a single file and extracts its label."""
+            data = np.load(file_path)  # Load .npy file
+            label = self._extract_label_from_path(file_path)
+            return data, label
+
+        def _extract_label_from_path(self, file_path):
+            """Derives label from folder name or filename if necessary."""
+            object_name = os.path.basename(os.path.dirname(file_path))  # Extract object folder name
+            label = int(object_name.split('_')[-1])  # Example: extracting number from 'object_3'
+            return label
+
+        def on_epoch_end(self):
+            """Shuffles data at the end of each epoch."""
+            if self.shuffle:
+                np.random.shuffle(self.file_paths)
+
     def percent_selector(self, map, order):
 
         dim1 = int(map.shape[0] * self.crop_scale)
@@ -282,7 +361,7 @@ class DataGenerator(keras.utils.Sequence):
 class DataGenerator2(keras.utils.Sequence):
     """Generates data for Keras"""
 
-    def __init__(self, list_IDs, dict, dict2=None, batch_size=8, dim=10000, n_channels=1,
+    def __init__(self, list_IDs, dict, dict2=None, batch_size=8, input_size=10000, n_channels=1,
                  res_scale=10, crop_scale=1, path='./../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/',
                  shuffle=True, conv_const='./../data/all_maps_meta_kgs.csv',
                  output_format='xx',
@@ -562,8 +641,9 @@ class DataGenerator2(keras.utils.Sequence):
 
 def data_gererators_set_up_AD(running_params, model_params):
     partition, data_dict, running_params, model_params = prepare_input_to_fit_keras_ADs(running_params,
-                                                                                            model_params)
-    selected_params = {'dim': running_params['dim'],
+                                                                                        model_params)
+    selected_params = {'input_size': running_params['input_size'],
+                       'output_size': running_params['output_size'],
                        'batch_size': running_params['batch_size'],
                        'n_channels': model_params['n_channels'],
                        'res_scale': running_params['res_scale'],
@@ -571,18 +651,21 @@ def data_gererators_set_up_AD(running_params, model_params):
                        'path': running_params['path'],
                        'shuffle': running_params['shuffle'],
                        'conv_const': running_params['conv_const'],
-                       'output_format': model_params['output_format'],
+                       'input_output_format': model_params['input_output_format'],
                        'include_lens_pos': model_params['include_lens_pos'],
                        'include_map_units': model_params['include_map_units']}
     if data_dict is None:
         if model_params['include_lens_pos']:
             print('Adding lens position requires setting train_set_selection=random.')
-            return
-        else:
-            training_generator = DataGenerator(partition['train'], data_dict, **selected_params)
-            validation_generator = DataGenerator(partition['validation'], data_dict, **selected_params)
+            training_generator = OptimizedDataGeneratorByID(partition['train'], **selected_params)
+            validation_generator = OptimizedDataGeneratorByID(partition['validation'], **selected_params)
             selected_params['shuffle'] = False
-            test_generator = DataGenerator(partition['test'], data_dict, **selected_params)
+            test_generator = OptimizedDataGeneratorByID(partition['test'], **selected_params)
+        else:
+            training_generator = OptimizedDataGeneratorByID(partition['train'], **selected_params)
+            validation_generator = OptimizedDataGeneratorByID(partition['validation'], **selected_params)
+            selected_params['shuffle'] = False
+            test_generator = OptimizedDataGeneratorByID(partition['test'], **selected_params)
     else:
         if model_params['include_lens_pos']:
             all_lens_pos = read_all_lens_pos()
@@ -601,7 +684,8 @@ def data_gererators_set_up_AD(running_params, model_params):
 
 
 def data_generator_set_up_kgs_bt(model_design_key, running_params):
-    bt_train, bt_test, kgs_train, kgs_test, lens_pos_train, lens_pos_test, ids_train, ids_test, IDs = prepare_input_for_kgs_bt(model_design_key, running_params)
+    bt_train, bt_test, kgs_train, kgs_test, lens_pos_train, lens_pos_test, ids_train, ids_test, IDs = prepare_input_for_kgs_bt(
+        model_design_key, running_params)
 
     if model_design_key == 'kgs_lens_pos_to_bt':
         train_object_X = [kgs_train, lens_pos_train]
@@ -622,3 +706,156 @@ def data_generator_set_up_kgs_bt(model_design_key, running_params):
         test_object_Y = bt_test
 
     return train_object_X, train_object_Y, test_object_X, test_object_Y, ids_train, ids_test
+
+
+class OptimizedDataGeneratorByID(tf.keras.utils.Sequence):
+    def __init__(self,
+                 id_list,
+                 path='./../../../fred/oz108/GERLUMPH_project/DATABASES/gerlumph_db/',
+                 input_size=10000,
+                 output_size=1000,
+                 batch_size=8,
+                 shuffle=True,
+                 num_workers=4,
+                 cache_size=100,
+                 n_channels=1,
+                 res_scale=10,
+                 crop_scale=1,
+                 conv_const='./../data/all_maps_meta_kgs.csv',
+                 input_output_format='xx',
+                 include_lens_pos=False,
+                 include_map_units=False
+                 ):
+        """
+        Optimized Data Generator for datasets with folders named by IDs.
+
+        Args:
+            data_dir (str): Path to the dataset directory.
+            id_list (list): List of IDs corresponding to subfolders.
+            batch_size (int): Number of samples per batch.
+            shuffle (bool): Whether to shuffle data at the end of each epoch.
+            num_workers (int): Number of threads for parallel loading.
+            cache_size (int): Number of recently accessed files to cache in memory.
+        """
+        self.data_dir = path
+        self.input_size = input_size
+        self.output_size = output_size
+        self.id_list = id_list
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.num_workers = num_workers
+        self.cache_size = cache_size
+        self.file_paths = self._get_file_list()
+        self.include_lens_pos = include_lens_pos
+        self.input_output_format = input_output_format
+        self.on_epoch_end()  # Shuffle at initialization if needed
+        self.lens_pos_max = 244784
+
+    def _get_file_list(self):
+        """Collects all file paths from ID directories."""
+        file_paths = []
+        for object_id in self.id_list:
+            folder = os.path.join(self.data_dir, str(object_id))
+            if os.path.isdir(folder):
+                files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.bin')]
+                file_paths.extend(files)
+        return file_paths
+
+    def __len__(self):
+        """Denotes the number of batches per epoch."""
+        return int(np.floor(len(self.file_paths) / self.batch_size))
+
+    def __getitem__(self, index):
+        """Generates one batch of data."""
+        batch_files = self.file_paths[index * self.batch_size:(index + 1) * self.batch_size]
+        X, y = self.__data_generation(batch_files)
+        return X, y
+
+    def __data_generation(self, batch_files):
+        """Loads data in parallel using multiple threads and caching."""
+        X1 = np.zeros((self.batch_size, self.output_size, self.output_size, 1), dtype=np.float32)
+        X2 = np.zeros((self.batch_size, self.lens_pos_max, 2), dtype=np.float32)
+
+        # Use ThreadPoolExecutor for parallel loading
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            results = list(executor.map(self._load_file_with_cache, batch_files))
+
+        for i, (data, label) in enumerate(results):
+            if self.include_lens_pos:
+                X1[i, :, :, 0] = data[0]
+                X2[i, :, :] = data[1]
+            else:
+                X1[i, :, :, 0] = data
+
+        if self.include_lens_pos:
+            return (X1, X2), X1
+        else:
+            return X1, X1
+
+    @lru_cache(maxsize=100)
+    def _load_file_with_cache(self, file_path):
+        """Loads a single file and caches frequently accessed data."""
+        label = self._extract_label_from_path(file_path)
+        data = read_binary_map(label, self.input_size)
+        if self.input_output_format == 'norm_maps':
+            data = norm_maps(data)
+        if self.include_lens_pos:
+            lens_pos = process_read_lens_pos(label)
+            return [data, lens_pos], label
+        else:
+            return data, label
+
+    def _extract_label_from_path(self, file_path):
+        """Derives label from the ID folder name."""
+        object_id = os.path.basename(os.path.dirname(file_path))  # Extract object folder (ID) name
+        label = int(object_id)  # Example: if ID is '3', label = 3. Adjust as needed.
+        return label
+
+    def on_epoch_end(self):
+        """Shuffles data at the end of each epoch."""
+        if self.shuffle:
+            np.random.shuffle(self.file_paths)
+
+    def to_tf_dataset(self):
+        """Converts the generator into a TensorFlow dataset with two inputs and one output."""
+        if self.include_lens_pos:
+            dataset = tf.data.Dataset.from_generator(
+                lambda: self,
+                output_signature=(
+                    (
+                        tf.TensorSpec(shape=(self.batch_size, self.output_size, self.output_size, 1), dtype=tf.float32),  # X1 (image input)
+                        tf.TensorSpec(shape=(self.batch_size, self.lens_pos_max, 2), dtype=tf.float32)  # X2 (array input)
+                    ),
+                    tf.TensorSpec(shape=(self.batch_size, self.output_size, self.output_size, 1), dtype=tf.float32)  # y (target)
+                )
+            )
+        else:
+            dataset = tf.data.Dataset.from_generator(
+                lambda: self,
+                output_signature=(
+                        tf.TensorSpec(shape=(self.batch_size, self.output_size, self.output_size, 1), dtype=tf.float32),
+                    tf.TensorSpec(shape=(self.batch_size, self.output_size, self.output_size, 1), dtype=tf.float32)
+                )
+            )
+        return dataset.prefetch(tf.data.AUTOTUNE)
+
+    def inspect_example_batch(self):
+        """Fetches and prints an example batch to inspect the data."""
+        # Get the first batch from the generator
+        example_batch = self[0]
+
+        # Unpack the batch into input (X) and output (y)
+        X, y = example_batch
+
+        # Print the shape of the input and output
+        print("Shape of input data1 (X1):", X[0].shape)
+        print("Shape of input data2 (X2):", X[1].shape)
+        print("Shape of output data (y):", np.array(y).shape)
+
+        # Show a sample input and output
+        print("Example input (first sample):\n", np.mean(X[1]))
+        # print("Example input (second sample):\n", np.mean(X[1][1]))
+        # print("Example input (third sample):\n", np.mean(X[1][2]))
+        # print("Example output (label for the first sample):", y[0])
+
+        return X, y
